@@ -1,0 +1,1 @@
+import{S as t}from"./SDisplay-586bf37e.js";import{S as o}from"./SFlexCenter-7ee5320b.js";import{a as e}from"./Home-4b1ab7ae.js";import{u as a,c as r}from"./index-03e5f1d1.js";import"./AppHeader-5a986e33.js";import"./LoaderIcon-ab75df5c.js";import"./toast-0f51d593.js";const u=()=>(a(),r(o,{get children(){return[r(e,{size:128}),r(t,{children:"Chart"})]}}));export{u as default};

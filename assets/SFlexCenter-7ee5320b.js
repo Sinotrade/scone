@@ -1,0 +1,1 @@
+import{c as e,$ as a}from"./AppHeader-5a986e33.js";var n=e({defaultClassName:"_15sjne80",variantClassNames:{direction:{column:"_15sjne81",row:"_15sjne82"}},defaultVariants:{direction:"column"},compoundVariants:[]});const s=a("div",n);export{s as S};
