@@ -1,0 +1,1 @@
+const e=["Cancelled","Inactive","Filled","Failed"],s=["PreSubmitted","PendingSubmit","Submitted"],i=[...s,"Filling","PartFilled"],a=t=>e.includes(t.status.status),d=t=>i.includes(t.status.status);export{a,d as i};
