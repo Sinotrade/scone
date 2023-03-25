@@ -32,16 +32,23 @@ jobs:
         uses: borales/actions-yarn@v4
         with:
           cmd: bundle
+      - name: Upload production-ready bundle zip
+        uses: actions/upload-artifact@v3
+        with:
+          name: mobile-ota-bundle
+          path: "*.zip"
 
   release:
     name: Release
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/download-artifact@v3
+        with:
+            name: mobile-ota-bundle
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
-          repo_token: "${{ secrets.SINOTRADE_SCONE_GITHUB_TOKEN }}"
-          automatic_release_tag: "latest"
+          repo_token: ${{ secrets.SINOTRADE_SCONE_GITHUB_TOKEN }}
           prerelease: false
           files: |
             *.zip
