@@ -1,0 +1,58 @@
+name: "Upload GitHub Pages artifact"
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - '*'
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps: 
+      - name: fetch repo source
+        uses: actions/checkout@v3
+        with: 
+          repository: 'Yvictor/scone'
+          token: ${{ secrets.SCONE_GITHUB_TOKEN }}
+          ref: ${{ github.ref}}
+      - name: Setup Node 18.x
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18.x
+      - name: yarn install
+        uses: borales/actions-yarn@v4
+        with:
+          cmd: install # will run `yarn install` command
+      - name: Build production bundle
+        uses: borales/actions-yarn@v4
+        with:
+          cmd: build
+      - name: Upload production-ready build files
+        uses: actions/upload-pages-artifact@v1
+        with:
+          name: github-pages
+          path: dist
+        
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    # if : github.ref == 'refs/heads/main'
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
+    
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v1
+        with:
+          artifact_name: github-pages
+          
