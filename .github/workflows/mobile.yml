@@ -31,12 +31,14 @@ jobs:
       - name: Bundle zip
         uses: borales/actions-yarn@v4
         with:
-          cmd: bundle
+          cmd: bundle:encrypt
       - name: Upload production-ready bundle zip
         uses: actions/upload-artifact@v3
         with:
           name: mobile-ota-bundle
-          path: "*.zip"
+          path: |
+            *.zip
+            key
 
   release:
     name: Release
@@ -52,3 +54,4 @@ jobs:
           prerelease: false
           files: |
             *.zip
+            key
