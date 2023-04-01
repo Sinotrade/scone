@@ -1,1 +1,1 @@
-feat: re enable auto update (Yvictor<yvictor3141@gmail.com> on 2023-04-01 22:35:27 +0800)
+fix: abstract createSolaceSession for reconnect and reconstruct (Yvictor<yvictor3141@gmail.com> on 2023-04-01 22:27:39 +0800)
