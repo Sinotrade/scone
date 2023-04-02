@@ -9,6 +9,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    environment: mobile-release
     steps:
       - name: fetch repo source
         uses: actions/checkout@v3
@@ -24,6 +25,9 @@ jobs:
         uses: borales/actions-yarn@v4
         with:
           cmd: install # will run `yarn install` command
+      - name: Create .env file for vite build
+        run: |
+          echo "${{ secrets.ENV_FILE }}" > .env
       - name: Build production bundle
         uses: borales/actions-yarn@v4
         with:
@@ -48,9 +52,10 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
             name: mobile-ota-bundle
-      - uses: "marvinpinto/action-automatic-releases@latest"
+      - uses: softprops/action-gh-release@v1
         with:
-          repo_token: ${{ secrets.SINOTRADE_SCONE_GITHUB_TOKEN }}
+          token: ${{ secrets.SINOTRADE_SCONE_GITHUB_TOKEN }}
+          generate_release_notes: true
           prerelease: false
           files: |
             *.zip
