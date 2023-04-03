@@ -49,14 +49,25 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v3
         with:
             name: mobile-ota-bundle
-      - uses: softprops/action-gh-release@v1
+      - name: Install conventional-changelog-cli
+        run: npm install -g conventional-changelog-cli
+      - name:  Generate changelog
+        id: changelog
+        run: |
+          conventional-changelog -p conventionalcommits -r 2 -o CHANGELOGFULL.md
+          tail -n +5 CHANGELOGFULL.md >> ${{ github.workspace }}-CHANGELOG.md
+      - name: create github release
+        uses: softprops/action-gh-release@v1
         with:
           token: ${{ secrets.SINOTRADE_SCONE_GITHUB_TOKEN }}
-          generate_release_notes: true
           prerelease: false
+          body_path: ${{ github.workspace }}-CHANGELOG.md
           files: |
             *.zip
             key
