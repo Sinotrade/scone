@@ -30,8 +30,8 @@ Quantitative trading involves the use of sophisticated algorithms and mathematic
 ## Usage
 To use Scone, choose from one of the following platforms:
 
-- [Web](https://sinotrade.github.io/scone/)
-- [iOS]()
+<!-- - [Web](https://sinotrade.github.io/scone/) -->
+- [iOS](https://apps.apple.com/tw/app/scone/id6446641951)
 - [Android]()
 - [Mac]()
 
