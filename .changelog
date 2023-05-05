@@ -1,1 +1,1 @@
-fix: syncWatchlist refetch snapshot (yvictor<yvictor3141@gmail.com> on 2023-05-05 15:53:29 +0800)
+feat: add syncWatchlist api (yvictor<yvictor3141@gmail.com> on 2023-05-05 15:27:07 +0800)
