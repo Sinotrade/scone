@@ -17,10 +17,10 @@ jobs:
           repository: "Yvictor/scone"
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
           ref: master
-      - name: Setup Node 18.x
+      - name: Setup Node 20.x
         uses: actions/setup-node@v3
         with:
-          node-version: 18.x
+          node-version: 20.x
       - name: yarn install
         uses: borales/actions-yarn@v4
         with:
@@ -70,4 +70,5 @@ jobs:
           body_path: ${{ github.workspace }}-CHANGELOG.md
           files: |
             *.zip
+            *.checksum
             key
