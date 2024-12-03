@@ -42,6 +42,7 @@ jobs:
           name: mobile-ota-bundle
           path: |
             *.zip
+            *.checksum
             key
 
   release:
