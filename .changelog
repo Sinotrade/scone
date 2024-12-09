@@ -1,1 +1,1 @@
-feat: add specta for tauri command type export (Yvictor<yvictor3141@gmail.com> on 2023-05-18 00:28:47 +0800)
+fix: windows allow open tab with window.open (yvictor<yvictor3141@gmail.com> on 2023-05-17 12:13:10 +0800)
