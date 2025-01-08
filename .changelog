@@ -1,1 +1,1 @@
-refactor: OrderPanel use OrderConfig to create order (王澤承-平台發展部-永豐金證券<tsecheng.wang@sinopac.com> on 2024-12-18 14:21:50 +0800)
+fix: storeon-observable state$ renew (王澤承-平台發展部-永豐金證券<tsecheng.wang@sinopac.com> on 2024-12-18 09:56:51 +0800)
