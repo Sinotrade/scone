@@ -6,17 +6,25 @@ on:
       - "*"
 
 jobs:
-  build:
+  Build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     environment: mobile-release
     steps:
-      - name: fetch repo source
-        uses: actions/checkout@v3
+      - name: fetch repo source for Formal release
+        if: "!startsWith(github.ref, 'refs/tags/staging-')"
+        uses: actions/checkout@v4
         with:
           repository: "Yvictor/scone"
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
           ref: master
+      - name: fetch repo source for Staging release
+        if: "startsWith(github.ref, 'refs/tags/staging-')"
+        uses: actions/checkout@v4
+        with:
+          repository: "Yvictor/scone"
+          token: ${{ secrets.SCONE_GITHUB_TOKEN }}
+          ref: staging
       - name: Setup Node 20.x
         uses: actions/setup-node@v4
         with:
@@ -24,7 +32,7 @@ jobs:
       - name: yarn install
         uses: borales/actions-yarn@v5
         with:
-          cmd: install # will run `yarn install` command
+          cmd: install
       - name: Create .env file for vite build
         run: |
           echo "${{ secrets.ENV_FILE }}" > .env
@@ -32,6 +40,29 @@ jobs:
         uses: borales/actions-yarn@v5
         with:
           cmd: build
+      - name: Sync Capacitor
+        uses: borales/actions-yarn@v5
+        with:
+          cmd: sync
+
+
+      - name: Setup Ruby and Bundler
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.0'
+          bundler-cache: true
+      - name: Run Fastlane
+        uses: maierj/fastlane-action@v3.1.0
+        with:
+          lane: 'release'
+          subdirectory: 'ios/App'
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+
+
+
       - name: Bundle zip
         uses: borales/actions-yarn@v5
         with:
@@ -45,15 +76,17 @@ jobs:
             *.checksum
             key
 
-  release:
+  Release:
     name: Release
-    needs: build
+    needs: Build
+    if: "!startsWith(github.ref, 'refs/tags/staging-')"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v3
+      - name: Download changelog artifact
+        uses: actions/download-artifact@v3
         with:
             name: mobile-ota-bundle
       - name: Install conventional-changelog-cli
