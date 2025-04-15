@@ -68,7 +68,7 @@ jobs:
         with:
           cmd: bundle:encrypt
       - name: Upload production-ready bundle zip
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: mobile-ota-bundle
           path: |
