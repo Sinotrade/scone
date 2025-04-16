@@ -57,6 +57,11 @@ jobs:
           ruby-version: '3.0'
           bundler-cache: true
 
+      - name: Set Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: 'latest-stable'
+
       - name: Bundle install in ios/App
         run: bundle install
         working-directory: ./ios/App
@@ -75,7 +80,6 @@ jobs:
           APP_STORE_CONNECT_PROVISIONING_PROFILE_BASE64: ${{ secrets.APP_STORE_CONNECT_PROVISIONING_PROFILE_BASE64 }}
           APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
           XCODE_SIGNING_IDENTITY: ${{ secrets.XCODE_SIGNING_IDENTITY }}
-
 
       - name: Bundle zip
         uses: borales/actions-yarn@v5
