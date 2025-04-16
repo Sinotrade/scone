@@ -19,7 +19,7 @@ jobs:
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
           ref: master
 
-      - name: fetch repo source for Staging release
+      - name: fetch repo source for Staging staging
         if: "startsWith(github.ref, 'refs/tags/staging-')"
         uses: actions/checkout@v4
         with:
@@ -41,10 +41,21 @@ jobs:
         run: |
           echo "${{ secrets.ENV_FILE }}" > .env
 
-      - name: Build production bundle
+      - name: Build bundle for release
+        if: "!startsWith(github.ref, 'refs/tags/staging-')"
         uses: borales/actions-yarn@v5
         with:
           cmd: build
+        env:
+          VITE_ENV: 'production'
+
+      - name: Build bundle for staging
+        if: "startsWith(github.ref, 'refs/tags/staging-')"
+        uses: borales/actions-yarn@v5
+        with:
+          cmd: build
+        env:
+          VITE_ENV: 'staging'
 
       - name: Sync Capacitor
         uses: borales/actions-yarn@v5
