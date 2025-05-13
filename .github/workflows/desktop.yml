@@ -7,7 +7,7 @@ on:
   workflow_dispatch: # 允許手動觸發
     inputs:
       tag_override: # 手動觸發時可選的 tag 輸入
-        description: '手動指定一個版本號/tag (例如 v0.1.0-manual-test)。如果為空，將自動生成一個測試版tag。'
+        description: '指定一個版本號/tag。如果為空，將自動生成一個測試版tag。'
         required: false
         type: string
 
