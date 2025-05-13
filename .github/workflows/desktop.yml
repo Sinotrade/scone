@@ -224,7 +224,7 @@ jobs:
           name: windows-build
           path: ${{ steps.locate_msi.outputs.msi_name }}
 
- create-release:
+  create-release:
     name: Create GitHub Release
     needs: [Build-macos, Build-windows]
     runs-on: ubuntu-latest
