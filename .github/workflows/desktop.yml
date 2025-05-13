@@ -224,21 +224,22 @@ jobs:
           name: windows-build
           path: ${{ steps.locate_msi.outputs.msi_name }}
 
-  create-release:
+ create-release:
     name: Create GitHub Release
     needs: [Build-macos, Build-windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       TAG_VERSION: ${{ needs.Build-macos.outputs.tag_version }}
       IS_STAGING_BUILD: ${{ needs.Build-macos.outputs.is_staging_build }}
-
     steps:
       - name: Determine Release Name and Prerelease Flag
         id: release_info
         run: |
           RELEASE_NAME_VALUE="Desktop ${{ env.TAG_VERSION }}"
           PRERELEASE_FLAG_VALUE=false
-          if [[ "${{ env.IS_STAGING_BUILD }}" == "true" ]]; then
+          if [[ "${{ env.IS_STAGING_BUILD }}" == "true" ]]; then # 或者更健壯的比較 (env.IS_STAGING_BUILD == 'true' || env.IS_STAGING_BUILD == 'True')
             RELEASE_NAME_VALUE="Desktop-Test ${{ env.TAG_VERSION }}"
             PRERELEASE_FLAG_VALUE=true
           fi
@@ -251,7 +252,6 @@ jobs:
           path: artifacts/
 
       - name: Checkout full history for changelog generation
-        # Changelog 只在非 staging build 時產生
         if: "env.IS_STAGING_BUILD == 'false'"
         uses: actions/checkout@v4
         with:
@@ -273,11 +273,10 @@ jobs:
       - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          token: ${{ secrets.SCONE_GITHUB_TOKEN }}
           tag_name: ${{ env.TAG_VERSION }}
           name: ${{ steps.release_info.outputs.release_name }}
-          body_path: ${{ env.IS_STAGING_BUILD == 'false' && 'RELEASE_NOTES.md' || '' }}
-          body: ${{ env.IS_STAGING_BUILD == 'true' && 'Staging release for testing (manual or staging tag).' || '' }}
+          body_path: ${{ (env.IS_STAGING_BUILD == 'false' || env.IS_STAGING_BUILD == 'False') && 'RELEASE_NOTES.md' || '' }}
+          body: ${{ (env.IS_STAGING_BUILD == 'true' || env.IS_STAGING_BUILD == 'True') && 'Staging release for testing (manual or staging tag).' || '' }}
           prerelease: ${{ steps.release_info.outputs.prerelease }}
           files: |
             artifacts/macos-build/*
