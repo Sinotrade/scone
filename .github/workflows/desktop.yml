@@ -1,0 +1,276 @@
+name: "Create Release Desktop Assets"
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch: # 允許手動觸發
+    inputs:
+      tag_override: # 手動觸發時可選的 tag 輸入
+        description: '手動指定一個版本號/tag (例如 v0.1.0-manual-test)。如果為空，將自動生成一個測試版tag。'
+        required: false
+        type: string
+
+jobs:
+  Build-macos:
+    name: Build macOS Universal
+    runs-on: macos-latest
+    environment: desktop-release
+    env:
+      APP_NAME: Scone
+    outputs:
+      tag_version: ${{ steps.version_context.outputs.tag_version_output }}
+      is_staging_build: ${{ steps.version_context.outputs.is_staging_build_output }}
+    steps:
+      - name: Determine Version and Staging Context
+        id: version_context
+        run: |
+          IS_STAGING_BUILD_VALUE=false
+          TAG_VERSION_VALUE=""
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            IS_STAGING_BUILD_VALUE=true # 手動觸發始終視為 staging
+            if [[ -n "${{ github.event.inputs.tag_override }}" ]]; then
+              TAG_VERSION_VALUE="${{ github.event.inputs.tag_override }}"
+            else
+              # 如果手動觸發且未提供 tag，則生成一個唯一的 staging tag
+              TAG_VERSION_VALUE="staging-manual-${{ github.run_id }}"
+            fi
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG_VERSION_VALUE="${{ github.ref_name }}" # github.ref_name 直接給出 tag 名稱
+            if [[ "${{ github.ref_name }}" == staging-* ]]; then
+              IS_STAGING_BUILD_VALUE=true
+            fi
+          else
+            echo "::error ::Unsupported event: ${{ github.event_name }}"
+            exit 1
+          fi
+          echo "TAG_VERSION=${TAG_VERSION_VALUE}" >> $GITHUB_ENV
+          echo "IS_STAGING_BUILD=${IS_STAGING_BUILD_VALUE}" >> $GITHUB_ENV
+          echo "tag_version_output=${TAG_VERSION_VALUE}" >> $GITHUB_OUTPUT
+          echo "is_staging_build_output=${IS_STAGING_BUILD_VALUE}" >> $GITHUB_OUTPUT
+
+      - name: fetch repo source
+        uses: actions/checkout@v4
+        with:
+          repository: "Yvictor/scone"
+          token: ${{ secrets.SCONE_GITHUB_TOKEN }}
+          # 如果是 staging build (手動或 staging tag)，則 checkout staging 分支，否則 master
+          ref: ${{ env.IS_STAGING_BUILD == 'true' && 'staging' || 'master' }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+
+      - name: Install Dependencies using pnpm
+        run: pnpm install --frozen-lockfile
+
+      - name: Create .env file for vite build
+        run: |
+          echo "${{ secrets.ENV_FILE }}" > .env
+
+      - name: Setup Rust Environment
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Add Rust targets for Universal macOS build
+        run: |
+          rustup target add x86_64-apple-darwin
+          rustup target add aarch64-apple-darwin
+
+      - name: Build macOS Universal App
+        run: pnpm build:mac
+        env:
+          # 如果是 staging build，VITE_ENV 為 staging，否則為 production
+          VITE_ENV: ${{ env.IS_STAGING_BUILD == 'true' && 'staging' || 'production' }}
+
+      - name: Package macOS Artifacts
+        run: |
+          CONFIG_APP_NAME_RAW=$(jq -r '.package.productName // .package.name // env.APP_NAME' src-tauri/tauri.conf.json)
+          SANITIZED_APP_NAME=$(echo "$CONFIG_APP_NAME_RAW" | sed 's/ /-/g')
+          APP_DIR="src-tauri/target/universal-apple-darwin/release/bundle/macos/${SANITIZED_APP_NAME}.app"
+          DMG_FILE_PATTERN="src-tauri/target/universal-apple-darwin/release/bundle/dmg/${SANITIZED_APP_NAME}_*universal.dmg"
+          DMG_FILE_FOUND=$(ls $DMG_FILE_PATTERN | head -n 1)
+
+          APP_ARCHIVE="${SANITIZED_APP_NAME}_${{ env.TAG_VERSION }}_universal.app.tar.gz"
+          FINAL_DMG_NAME="${SANITIZED_APP_NAME}_${{ env.TAG_VERSION }}_universal.dmg"
+
+          echo "Archiving $APP_DIR to $APP_ARCHIVE"
+          tar czf $APP_ARCHIVE -C "$(dirname "$APP_DIR")" "$(basename "$APP_DIR")"
+          echo "Moving $DMG_FILE_FOUND to $FINAL_DMG_NAME"
+          mv "$DMG_FILE_FOUND" "$FINAL_DMG_NAME"
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: |
+            *.app.tar.gz
+            *.dmg
+
+  Build-windows:
+    name: Build Windows App (x64)
+    runs-on: windows-latest
+    environment: desktop-release
+    env:
+      APP_NAME: Scone
+    outputs:
+      tag_version: ${{ steps.version_context.outputs.tag_version_output }}
+      is_staging_build: ${{ steps.version_context.outputs.is_staging_build_output }}
+    steps:
+      - name: Determine Version and Staging Context
+        id: version_context
+        run: |
+          IS_STAGING_BUILD_VALUE=false
+          TAG_VERSION_VALUE=""
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            IS_STAGING_BUILD_VALUE=true # 手動觸發始終視為 staging
+            if [[ -n "${{ github.event.inputs.tag_override }}" ]]; then
+              TAG_VERSION_VALUE="${{ github.event.inputs.tag_override }}"
+            else
+              TAG_VERSION_VALUE="staging-manual-${{ github.run_id }}"
+            fi
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG_VERSION_VALUE="${{ github.ref_name }}"
+            if [[ "${{ github.ref_name }}" == staging-* ]]; then
+              IS_STAGING_BUILD_VALUE=true
+            fi
+          else
+            echo "::error ::Unsupported event: ${{ github.event_name }}"
+            exit 1
+          fi
+          echo "TAG_VERSION=${TAG_VERSION_VALUE}" >> $env:GITHUB_ENV # Windows
+          echo "IS_STAGING_BUILD=${IS_STAGING_BUILD_VALUE}" >> $env:GITHUB_ENV # Windows
+          # 設定 outputs 供其他 job 使用
+          echo "tag_version_output=${TAG_VERSION_VALUE}" >> $env:GITHUB_OUTPUT
+          echo "is_staging_build_output=${IS_STAGING_BUILD_VALUE}" >> $env:GITHUB_OUTPUT
+
+
+      - name: fetch repo source
+        uses: actions/checkout@v4
+        with:
+          repository: "Yvictor/scone"
+          token: ${{ secrets.SCONE_GITHUB_TOKEN }}
+          ref: ${{ env.IS_STAGING_BUILD == 'true' && 'staging' || 'master' }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+
+      - name: Install Dependencies using pnpm
+        run: pnpm install --frozen-lockfile
+
+      - name: Create .env file for vite build
+        run: |
+          echo "${{ secrets.ENV_FILE }}" > .env
+
+      - name: Setup Rust Environment
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-pc-windows-msvc
+
+      - name: Build Windows App
+        run: pnpm build:windows
+        env:
+          VITE_ENV: ${{ env.IS_STAGING_BUILD == 'true' && 'staging' || 'production' }}
+
+      - name: Locate Windows Artifact
+        id: locate_msi
+        run: |
+          $configAppNameRaw = (Get-Content -Raw -Path src-tauri/tauri.conf.json | ConvertFrom-Json).package.productName
+          if (-not $configAppNameRaw) {
+            $configAppNameRaw = (Get-Content -Raw -Path src-tauri/tauri.conf.json | ConvertFrom-Json).package.name
+          }
+          if (-not $configAppNameRaw) {
+            $configAppNameRaw = "${{ env.APP_NAME }}"
+          }
+          $sanitizedAppName = $configAppNameRaw -replace ' ', '-'
+          $msiSearchPattern = "src-tauri/target/release/bundle/msi/${sanitizedAppName}_*x64_en-US.msi"
+          $msiPath = Get-ChildItem -Path $msiSearchPattern | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $msiPath) {
+            Write-Error "MSI file not found with pattern: $msiSearchPattern. Check bundle identifier and language code."
+            exit 1
+          }
+          $msiName = "${sanitizedAppName}_${{ env.TAG_VERSION }}_x64.msi" # 使用 env.TAG_VERSION
+          Copy-Item -Path $msiPath -Destination $msiName
+          echo "msi_name=$msiName" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: ${{ steps.locate_msi.outputs.msi_name }}
+
+  create-release:
+    name: Create GitHub Release
+    needs: [Build-macos, Build-windows]
+    runs-on: ubuntu-latest
+    env:
+      TAG_VERSION: ${{ needs.Build-macos.outputs.tag_version }}
+      IS_STAGING_BUILD: ${{ needs.Build-macos.outputs.is_staging_build }}
+
+    steps:
+      - name: Determine Release Name and Prerelease Flag
+        id: release_info
+        run: |
+          RELEASE_NAME_VALUE="Desktop ${{ env.TAG_VERSION }}"
+          PRERELEASE_FLAG_VALUE=false
+          if [[ "${{ env.IS_STAGING_BUILD }}" == "true" ]]; then
+            RELEASE_NAME_VALUE="Desktop-Test ${{ env.TAG_VERSION }}"
+            PRERELEASE_FLAG_VALUE=true
+          fi
+          echo "release_name=${RELEASE_NAME_VALUE}" >> $GITHUB_OUTPUT
+          echo "prerelease=${PRERELEASE_FLAG_VALUE}" >> $GITHUB_OUTPUT
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Checkout full history for changelog generation
+        # Changelog 只在非 staging build 時產生
+        if: "env.IS_STAGING_BUILD == 'false'"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js for changelog
+        if: "env.IS_STAGING_BUILD == 'false'"
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+
+      - name: Install and Generate Changelog
+        if: "env.IS_STAGING_BUILD == 'false'"
+        run: |
+          npm install -g conventional-changelog-cli
+          conventional-changelog -p conventionalcommits -i CHANGELOG.md -s -r 2
+          conventional-changelog -p conventionalcommits -r 1 > RELEASE_NOTES.md
+
+      - name: Create/Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.SCONE_GITHUB_TOKEN }}
+          tag_name: ${{ env.TAG_VERSION }}
+          name: ${{ steps.release_info.outputs.release_name }}
+          body_path: ${{ env.IS_STAGING_BUILD == 'false' && 'RELEASE_NOTES.md' || '' }}
+          body: ${{ env.IS_STAGING_BUILD == 'true' && 'Staging release for testing (manual or staging tag).' || '' }}
+          prerelease: ${{ steps.release_info.outputs.prerelease }}
+          files: |
+            artifacts/macos-build/*
+            artifacts/windows-build/*
