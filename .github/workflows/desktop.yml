@@ -13,7 +13,7 @@ on:
 
 jobs:
   Build-macos:
-    name: Build macOS Universal
+    name: Build macOS App (Universal)
     runs-on: macos-latest
     environment: desktop-release
     env:
@@ -126,7 +126,7 @@ jobs:
     steps:
       - name: Determine Version and Staging Context
         id: version_context
-        shell: pwsh # 確保明確使用 PowerShell
+        shell: pwsh # 使用 PowerShell
         run: |
           $IS_STAGING_BUILD_VALUE = $false
           $TAG_VERSION_VALUE = ""
