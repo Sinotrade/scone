@@ -208,7 +208,7 @@ jobs:
             $configAppNameRaw = "${{ env.APP_NAME }}"
           }
           $sanitizedAppName = $configAppNameRaw -replace ' ', '-'
-          $msiSearchPattern = "src-tauri/target/release/bundle/msi/${sanitizedAppName}_*x64_en-US.msi"
+          $msiSearchPattern = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/${sanitizedAppName}_*x64_en-US.msi"
           $msiPath = Get-ChildItem -Path $msiSearchPattern | Select-Object -First 1 -ExpandProperty FullName
           if (-not $msiPath) {
             Write-Error "MSI file not found with pattern: $msiSearchPattern. Check bundle identifier and language code."
