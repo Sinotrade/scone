@@ -36,15 +36,14 @@ jobs:
           TAG_VERSION_VALUE=""
 
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            IS_STAGING_BUILD_VALUE=true # 手動觸發始終視為 staging
+            IS_STAGING_BUILD_VALUE=true
             if [[ -n "${{ github.event.inputs.tag_override }}" ]]; then
               TAG_VERSION_VALUE="${{ github.event.inputs.tag_override }}"
             else
-              # 如果手動觸發且未提供 tag，則生成一個唯一的 staging tag
               TAG_VERSION_VALUE="staging-manual-${{ github.run_id }}"
             fi
           elif [[ "${{ github.event_name }}" == "push" ]]; then
-            TAG_VERSION_VALUE="${{ github.ref_name }}" # github.ref_name 直接給出 tag 名稱
+            TAG_VERSION_VALUE="${{ github.ref_name }}"
             if [[ "${{ github.ref_name }}" == staging-* ]]; then
               IS_STAGING_BUILD_VALUE=true
             fi
@@ -91,7 +90,6 @@ jobs:
         run: |
           echo "Importing Apple Developer ID Certificate..."
           echo "${{ env.MACOS_CERT_BASE64_FROM_SECRET }}" | base64 --decode > certificate.p12
-          # 使用 env 中的 KEYCHAIN_TEMP_PASSWORD
           security create-keychain -p "${{ env.KEYCHAIN_TEMP_PASSWORD }}" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "${{ env.KEYCHAIN_TEMP_PASSWORD }}" build.keychain
@@ -125,10 +123,9 @@ jobs:
           # 如果是 staging build，VITE_ENV 為 staging，否則為 production
           VITE_ENV: ${{ steps.version_context.outputs.is_staging_build_output == 'true' && 'staging' || 'production' }}
           APPLE_SIGNING_IDENTITY: ${{ steps.import_and_set_identity.outputs.apple_signing_identity_output }}
-          # 只有 Production build 才會傳遞公證所需的環境變數，觸發公證
-          APPLE_ID: ${{ steps.version_context.outputs.is_staging_build_output == 'false' && env.APPLE_ID_SECRET || '' }}
-          APPLE_PASSWORD: ${{ steps.version_context.outputs.is_staging_build_output == 'false' && env.APPLE_PASSWORD_SECRET || '' }}
-          APPLE_TEAM_ID: ${{ steps.version_context.outputs.is_staging_build_output == 'false' && env.APPLE_TEAM_ID_SECRET || '' }}
+          APPLE_ID: ${{ env.APPLE_ID_SECRET }}
+          APPLE_PASSWORD: ${{ env.APPLE_PASSWORD_SECRET }}
+          APPLE_TEAM_ID: ${{ env.APPLE_TEAM_ID_SECRET }}
 
       - name: Package macOS Artifacts
         run: |
