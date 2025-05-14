@@ -3,11 +3,11 @@ name: "Create Release Desktop Assets"
 on:
   push:
     tags:
-      - "*"
+      - "desktop-*"
   workflow_dispatch: # 允許手動觸發
     inputs:
       tag_override: # 手動觸發時可選的 tag 輸入
-        description: '手動指定一個版本號/tag (例如 v0.1.0-manual-test)。如果為空，將自動生成一個測試版tag。'
+        description: '手動指定一個版本號/tag (例如 desktop-staging-0.1.0)。如果為空，將自動生成一個測試版tag。'
         required: false
         type: string
 
@@ -26,43 +26,64 @@ jobs:
       APPLE_PASSWORD_SECRET: ${{ secrets.APPLE_PASSWORD }}
       APPLE_TEAM_ID_SECRET: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
     outputs:
-      tag_version: ${{ steps.version_context.outputs.tag_version_output }}
+      full_tag_name: ${{ steps.version_context.outputs.full_tag_name_output }}
       is_staging_build: ${{ steps.version_context.outputs.is_staging_build_output }}
+      display_version: ${{ steps.version_context.outputs.display_version_output }}
     steps:
-      - name: Determine Version and Staging Context
+      - name: Determine Version, Staging Context, and Display Version
         id: version_context
         run: |
-          IS_STAGING_BUILD_VALUE=false
-          TAG_VERSION_VALUE=""
+          TARGET_TAG=""
+          IS_STAGING=false
+          VERSION_FOR_DISPLAY=""
 
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            IS_STAGING_BUILD_VALUE=true
             if [[ -n "${{ github.event.inputs.tag_override }}" ]]; then
-              TAG_VERSION_VALUE="${{ github.event.inputs.tag_override }}"
+              TARGET_TAG="${{ github.event.inputs.tag_override }}"
             else
-              TAG_VERSION_VALUE="staging-manual-${{ github.run_id }}"
+              TARGET_TAG="desktop-staging-manual-${{ github.run_id }}"
             fi
           elif [[ "${{ github.event_name }}" == "push" ]]; then
-            TAG_VERSION_VALUE="${{ github.ref_name }}"
-            if [[ "${{ github.ref_name }}" == staging-* ]]; then
-              IS_STAGING_BUILD_VALUE=true
-            fi
+            TARGET_TAG="${{ github.ref_name }}"
           else
             echo "::error ::Unsupported event: ${{ github.event_name }}"
             exit 1
           fi
-          echo "TAG_VERSION=${TAG_VERSION_VALUE}" >> $GITHUB_ENV
-          echo "IS_STAGING_BUILD=${IS_STAGING_BUILD_VALUE}" >> $GITHUB_ENV
-          echo "tag_version_output=${TAG_VERSION_VALUE}" >> $GITHUB_OUTPUT
-          echo "is_staging_build_output=${IS_STAGING_BUILD_VALUE}" >> $GITHUB_OUTPUT
+
+          echo "Processing Tag: $TARGET_TAG"
+
+          if [[ "$TARGET_TAG" == desktop-staging-* ]]; then
+            IS_STAGING=true
+            VERSION_FOR_DISPLAY="${TARGET_TAG#desktop-}" # e.g., staging-0.1.0-id
+          elif [[ "$TARGET_TAG" == desktop-* ]]; then
+            IS_STAGING=false
+            VERSION_FOR_DISPLAY="${TARGET_TAG#desktop-}" # e.g., 0.1.0
+          else
+            echo "::warning ::Tag '$TARGET_TAG' does not start with 'desktop-'. This is unexpected."
+            IS_STAGING=true
+            VERSION_FOR_DISPLAY="$TARGET_TAG"
+          fi
+
+          echo "Full Tag Name: $TARGET_TAG"
+          echo "Is Staging Build: $IS_STAGING"
+          echo "Display Version: $VERSION_FOR_DISPLAY"
+
+          # 設置環境變數 (使用 D_ 前綴)
+          echo "D_TAG_VERSION_ENV=${TARGET_TAG}" >> $GITHUB_ENV
+          echo "D_IS_STAGING_BUILD_ENV=${IS_STAGING}" >> $GITHUB_ENV
+          echo "D_DISPLAY_VERSION_ENV=${VERSION_FOR_DISPLAY}" >> $GITHUB_ENV
+
+          echo "full_tag_name_output=${TARGET_TAG}" >> $GITHUB_OUTPUT
+          echo "is_staging_build_output=${IS_STAGING}" >> $GITHUB_OUTPUT
+          echo "display_version_output=${VERSION_FOR_DISPLAY}" >> $GITHUB_OUTPUT
 
       - name: fetch repo source
         uses: actions/checkout@v4
         with:
           repository: "Yvictor/scone"
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
-          # 如果是 staging build (手動或 staging tag)，則 checkout staging 分支，否則 master
-          ref: ${{ env.IS_STAGING_BUILD == 'true' && 'staging' || 'master' }}
+          ref: ${{ env.D_IS_STAGING_BUILD_ENV == 'true' && 'staging' || 'master' }}
+
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -117,11 +138,11 @@ jobs:
           rustup target add x86_64-apple-darwin
           rustup target add aarch64-apple-darwin
 
-      - name: Build macOS Universal App (with explicit signing identity)
+      - name: Build macOS Universal App
         run: pnpm build:mac
         env:
           # 如果是 staging build，VITE_ENV 為 staging，否則為 production
-          VITE_ENV: ${{ steps.version_context.outputs.is_staging_build_output == 'true' && 'staging' || 'production' }}
+          VITE_ENV: ${{ env.D_IS_STAGING_BUILD_ENV == 'true' && 'staging' || 'production' }}
           APPLE_SIGNING_IDENTITY: ${{ steps.import_and_set_identity.outputs.apple_signing_identity_output }}
           APPLE_ID: ${{ env.APPLE_ID_SECRET }}
           APPLE_PASSWORD: ${{ env.APPLE_PASSWORD_SECRET }}
@@ -135,8 +156,8 @@ jobs:
           DMG_FILE_PATTERN="src-tauri/target/universal-apple-darwin/release/bundle/dmg/${SANITIZED_APP_NAME}_*universal.dmg"
           DMG_FILE_FOUND=$(ls $DMG_FILE_PATTERN | head -n 1)
 
-          APP_ARCHIVE="${SANITIZED_APP_NAME}_${{ env.TAG_VERSION }}_universal.app.tar.gz"
-          FINAL_DMG_NAME="${SANITIZED_APP_NAME}_${{ env.TAG_VERSION }}_universal.dmg"
+          APP_ARCHIVE="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.app.tar.gz"
+          FINAL_DMG_NAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.dmg"
 
           echo "Archiving $APP_DIR to $APP_ARCHIVE"
           tar czf $APP_ARCHIVE -C "$(dirname "$APP_DIR")" "$(basename "$APP_DIR")"
@@ -158,52 +179,62 @@ jobs:
     env:
       APP_NAME: Scone
     outputs:
-      tag_version: ${{ steps.version_context.outputs.tag_version_output }}
-      is_staging_build: ${{ steps.version_context.outputs.is_staging_build_output }}
+      full_tag_name_output: ${{ steps.version_context.outputs.full_tag_name_output }}
+      is_staging_build_output: ${{ steps.version_context.outputs.is_staging_build_output }}
+      display_version_output: ${{ steps.version_context.outputs.display_version_output }}
     steps:
       - name: Determine Version and Staging Context
         id: version_context
         shell: pwsh # 使用 PowerShell
         run: |
-          $IS_STAGING_BUILD_VALUE = $false
-          $TAG_VERSION_VALUE = ""
-
-          Write-Host "GitHub Event Name: ${{ github.event_name }}"
-          Write-Host "GitHub Ref Name (for push): ${{ github.ref_name }}"
-          Write-Host "Manual Tag Override Input: ${{ github.event.inputs.tag_override }}"
+          $TARGET_TAG = ""
+          $IS_STAGING = $false
+          $VERSION_FOR_DISPLAY = ""
 
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $IS_STAGING_BUILD_VALUE = $true
             if (-not [string]::IsNullOrEmpty("${{ github.event.inputs.tag_override }}")) {
-              $TAG_VERSION_VALUE = "${{ github.event.inputs.tag_override }}"
+              $TARGET_TAG = "${{ github.event.inputs.tag_override }}"
             } else {
-              $TAG_VERSION_VALUE = "staging-manual-${{ github.run_id }}"
+              $TARGET_TAG = "desktop-staging-manual-${{ github.run_id }}"
             }
           } elseif ("${{ github.event_name }}" -eq "push") {
-            $TAG_VERSION_VALUE = "${{ github.ref_name }}"
-            if ("${{ github.ref_name }}" -like "staging-*") {
-              $IS_STAGING_BUILD_VALUE = $true
-            }
+            $TARGET_TAG = "${{ github.ref_name }}"
           } else {
             Write-Error "Unsupported event: ${{ github.event_name }}"
             exit 1
           }
 
-          Write-Host "Determined TAG_VERSION: $TAG_VERSION_VALUE"
-          Write-Host "Determined IS_STAGING_BUILD: $IS_STAGING_BUILD_VALUE"
+          Write-Host "Processing Tag (Windows): $TARGET_TAG"
+          if ($TARGET_TAG -like "desktop-staging-*") {
+            $IS_STAGING = $true
+            $VERSION_FOR_DISPLAY = $TARGET_TAG.Substring("desktop-".Length)
+          } elseif ($TARGET_TAG -like "desktop-*") {
+            $IS_STAGING = $false
+            $VERSION_FOR_DISPLAY = $TARGET_TAG.Substring("desktop-".Length)
+          } else {
+            Write-Warning "Tag '$TARGET_TAG' does not start with 'desktop-'. This is unexpected."
+            $IS_STAGING = $true
+            $VERSION_FOR_DISPLAY = $TARGET_TAG
+          }
 
-          echo "TAG_VERSION=$TAG_VERSION_VALUE" >> $env:GITHUB_ENV
-          echo "IS_STAGING_BUILD=$IS_STAGING_BUILD_VALUE" >> $env:GITHUB_ENV
+          Write-Host "Full Tag Name (Windows): $TARGET_TAG"
+          Write-Host "Is Staging Build (Windows): $IS_STAGING"
+          Write-Host "Display Version (Windows): $VERSION_FOR_DISPLAY"
 
-          echo "tag_version_output=$TAG_VERSION_VALUE" >> $env:GITHUB_OUTPUT
-          echo "is_staging_build_output=$IS_STAGING_BUILD_VALUE" >> $env:GITHUB_OUTPUT
+          # 設置環境變數 (使用 D_ 前綴)
+          "D_TAG_VERSION_ENV=$TARGET_TAG" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "D_IS_STAGING_BUILD_ENV=$IS_STAGING" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "D_DISPLAY_VERSION_ENV=$VERSION_FOR_DISPLAY" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "full_tag_name_output=$TARGET_TAG" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "is_staging_build_output=$IS_STAGING" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "display_version_output=$VERSION_FOR_DISPLAY" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: fetch repo source
         uses: actions/checkout@v4
         with:
           repository: "Yvictor/scone"
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
-          ref: ${{ env.IS_STAGING_BUILD == 'true' && 'staging' || 'master' }}
+          ref: ${{ env.D_IS_STAGING_BUILD_ENV == 'True' && 'staging' || 'master' }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -232,28 +263,21 @@ jobs:
       - name: Build Windows App
         run: pnpm build:windows
         env:
-          VITE_ENV: ${{ env.IS_STAGING_BUILD == 'true' && 'staging' || 'production' }}
+          VITE_ENV: ${{ env.D_IS_STAGING_BUILD_ENV == 'True' && 'staging' || 'production' }}
 
       - name: Locate Windows Artifact
         id: locate_msi
         run: |
           $configAppNameRaw = (Get-Content -Raw -Path src-tauri/tauri.conf.json | ConvertFrom-Json).package.productName
-          if (-not $configAppNameRaw) {
-            $configAppNameRaw = (Get-Content -Raw -Path src-tauri/tauri.conf.json | ConvertFrom-Json).package.name
-          }
-          if (-not $configAppNameRaw) {
-            $configAppNameRaw = "${{ env.APP_NAME }}"
-          }
+          if (-not $configAppNameRaw) { $configAppNameRaw = (Get-Content -Raw -Path src-tauri/tauri.conf.json | ConvertFrom-Json).package.name }
+          if (-not $configAppNameRaw) { $configAppNameRaw = "${{ env.APP_NAME }}" }
           $sanitizedAppName = $configAppNameRaw -replace ' ', '-'
           $msiSearchPattern = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/${sanitizedAppName}_*x64_en-US.msi"
           $msiPath = Get-ChildItem -Path $msiSearchPattern | Select-Object -First 1 -ExpandProperty FullName
-          if (-not $msiPath) {
-            Write-Error "MSI file not found with pattern: $msiSearchPattern. Check bundle identifier and language code."
-            exit 1
-          }
-          $msiName = "${sanitizedAppName}_${{ env.TAG_VERSION }}_x64.msi" # 使用 env.TAG_VERSION
+          if (-not $msiPath) { Write-Error "MSI file not found with pattern: $msiSearchPattern."; exit 1 }
+          $msiName = "${sanitizedAppName}_${{ env.D_DISPLAY_VERSION_ENV }}_x64.msi"
           Copy-Item -Path $msiPath -Destination $msiName
-          echo "msi_name=$msiName" >> $env:GITHUB_OUTPUT
+          "msi_name=$msiName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
@@ -268,38 +292,34 @@ jobs:
     permissions:
       contents: write
     env:
-      TAG_VERSION: ${{ needs.Build-macos.outputs.tag_version }}
-      IS_STAGING_BUILD: ${{ needs.Build-macos.outputs.is_staging_build }}
+      CR_FULL_TAG: ${{ needs.Build-macos.outputs.full_tag_name_output }}
+      CR_IS_STAGING: ${{ needs.Build-macos.outputs.is_staging_build_output }}
+      CR_DISPLAY_VERSION: ${{ needs.Build-macos.outputs.display_version_output }}
     steps:
       - name: Determine Release Name and Prerelease Flag
         id: release_info
         run: |
-          RAW_TAG_VERSION="${{ env.TAG_VERSION }}" # 原始的 tag
-          DISPLAY_VERSION="" # 顯示的版本號
-          RELEASE_NAME_VALUE=""
-          PRERELEASE_FLAG_VALUE=false
+          FINAL_RELEASE_NAME=""
+          MARK_AS_PRERELEASE=false
 
-          if [[ "${{ env.IS_STAGING_BUILD }}" == "true" ]]; then
-            PRERELEASE_FLAG_VALUE=true
-            # 測試版(只取主版號)
-            if [[ "$RAW_TAG_VERSION" == staging-* ]]; then
-              EXTRACTED_PART="${RAW_TAG_VERSION#staging-}"
-              DISPLAY_VERSION=$(echo "$EXTRACTED_PART" | cut -d'-' -f1)
-              RELEASE_NAME_VALUE="Desktop-Test $DISPLAY_VERSION"
+          if [[ "${{ env.CR_IS_STAGING }}" == "true" ]]; then
+            # 測試版
+            MARK_AS_PRERELEASE=true
+            if [[ "${{ env.CR_FULL_TAG }}" == desktop-staging-* ]]; then
+              TEMP_DISPLAY_VERSION="${{ env.CR_DISPLAY_VERSION }}"
+              FINAL_RELEASE_NAME="Desktop-Test ${{ env.CR_DISPLAY_VERSION }}"
             else
-              # 如果是手動觸發且沒有 "staging-" 前綴
-              DISPLAY_VERSION="$RAW_TAG_VERSION"
-              RELEASE_NAME_VALUE="Desktop-Test $DISPLAY_VERSION"
+              FINAL_RELEASE_NAME="Desktop-Test ${{ env.CR_DISPLAY_VERSION }}"
             fi
           else
             # 正式版
-            DISPLAY_VERSION="$RAW_TAG_VERSION"
-            RELEASE_NAME_VALUE="Desktop $DISPLAY_VERSION"
+            FINAL_RELEASE_NAME="Desktop ${{ env.CR_DISPLAY_VERSION }}"
           fi
 
-          echo "Final Release Name: $RELEASE_NAME_VALUE"
-          echo "release_name=${RELEASE_NAME_VALUE}" >> $GITHUB_OUTPUT
-          echo "prerelease=${PRERELEASE_FLAG_VALUE}" >> $GITHUB_OUTPUT
+          echo "Release Name: $FINAL_RELEASE_NAME"
+          echo "Is Prerelease: $MARK_AS_PRERELEASE"
+          echo "release_name_output=${FINAL_RELEASE_NAME}" >> $GITHUB_OUTPUT
+          echo "prerelease_output=${MARK_AS_PRERELEASE}" >> $GITHUB_OUTPUT
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
@@ -307,32 +327,32 @@ jobs:
           path: artifacts/
 
       - name: Checkout full history for changelog generation
-        if: "env.IS_STAGING_BUILD == 'false'"
+        if: "env.CR_IS_STAGING == 'false'"
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Setup Node.js for changelog
-        if: "env.IS_STAGING_BUILD == 'false'"
+        if: "env.CR_IS_STAGING == 'false'"
         uses: actions/setup-node@v4
         with:
           node-version: '20.x'
 
       - name: Install and Generate Changelog
-        if: "env.IS_STAGING_BUILD == 'false'"
+        if: "env.CR_IS_STAGING == 'false'"
         run: |
           npm install -g conventional-changelog-cli
           conventional-changelog -p conventionalcommits -i CHANGELOG.md -s -r 2
-          conventional-changelog -p conventionalcommits -r 1 > RELEASE_NOTES.md
+          conventional-changelog -p conventionalcommits -r 1 > RELEASE_NOTES_DESKTOP.md
 
       - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.TAG_VERSION }}
-          name: ${{ steps.release_info.outputs.release_name }}
-          body_path: ${{ (env.IS_STAGING_BUILD == 'false' || env.IS_STAGING_BUILD == 'False') && 'RELEASE_NOTES.md' || '' }}
-          body: ${{ (env.IS_STAGING_BUILD == 'true' || env.IS_STAGING_BUILD == 'True') && 'Staging release for testing.' || '' }}
-          prerelease: ${{ steps.release_info.outputs.prerelease }}
+          tag_name: ${{ env.CR_FULL_TAG }}
+          name: ${{ steps.release_info.outputs.release_name_output }}
+          body_path: ${{ env.CR_IS_STAGING == 'false' && 'RELEASE_NOTES_DESKTOP.md' || '' }}
+          body: ${{ env.CR_IS_STAGING == 'true' && 'Staging release for testing.' || '' }}
+          prerelease: ${{ steps.release_info.outputs.prerelease_output }}
           files: |
-            artifacts/macos-build/*
-            artifacts/windows-build/*
+            artifacts/macos-build-artifacts/*
+            artifacts/windows-build-artifacts/*
