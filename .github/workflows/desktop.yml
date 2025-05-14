@@ -296,7 +296,7 @@ jobs:
       CR_IS_STAGING: ${{ needs.Build-macos.outputs.is_staging_build }}
       CR_DISPLAY_VERSION_FOR_ARTIFACT_AND_CHANGELOG_REF: ${{ needs.Build-macos.outputs.display_version }}
     steps:
-- name: Determine Release Name and Prerelease Flag
+      - name: Determine Release Name and Prerelease Flag
         id: release_info
         run: |
           FINAL_RELEASE_NAME=""
