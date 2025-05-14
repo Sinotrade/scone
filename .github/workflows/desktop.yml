@@ -296,24 +296,26 @@ jobs:
       CR_IS_STAGING: ${{ needs.Build-macos.outputs.is_staging_build }}
       CR_DISPLAY_VERSION_FOR_ARTIFACT_AND_CHANGELOG_REF: ${{ needs.Build-macos.outputs.display_version }}
     steps:
-      - name: Determine Release Name and Prerelease Flag
+- name: Determine Release Name and Prerelease Flag
         id: release_info
         run: |
           FINAL_RELEASE_NAME=""
           MARK_AS_PRERELEASE=false
           RELEASE_TITLE_VERSION=""
 
-          if [[ "${{ env.CR_IS_STAGING }}" == "true" ]]; then
-            # 測試版
-            MARK_AS_PRERELEASE=true
-            TEMP_VERSION_PART="${{ env.CR_FULL_TAG#desktop-staging-}}"
-            RELEASE_TITLE_VERSION=$(echo "$TEMP_VERSION_PART" | cut -d'-' -f1)
+          CR_FULL_TAG_SHELL="${{ env.CR_FULL_TAG }}"
+          CR_IS_STAGING_SHELL="${{ env.CR_IS_STAGING }}"
 
-            if [[ "$TEMP_VERSION_PART" == "$RELEASE_TITLE_VERSION" ]] || [[ "${{ env.CR_FULL_TAG }}" != desktop-staging-* ]]; then
-                RELEASE_TITLE_VERSION="${{ env.CR_DISPLAY_VERSION_FOR_ARTIFACT_AND_CHANGELOG_REF }}"
-                if [[ "$RELEASE_TITLE_VERSION" == staging-* ]]; then
-                  RELEASE_TITLE_VERSION="${RELEASE_TITLE_VERSION#staging-}"
-                fi
+          if [[ "$CR_IS_STAGING_SHELL" == "true" ]]; then
+            MARK_AS_PRERELEASE=true
+            if [[ "$CR_FULL_TAG_SHELL" == desktop-staging-* ]]; then
+              TEMP_VERSION_PART="${CR_FULL_TAG_SHELL#desktop-staging-}"
+              RELEASE_TITLE_VERSION=$(echo "$TEMP_VERSION_PART" | cut -d'-' -f1)
+            else
+              RELEASE_TITLE_VERSION="${{ env.CR_DISPLAY_VERSION_FOR_ARTIFACT_AND_CHANGELOG_REF }}"
+              if [[ "$RELEASE_TITLE_VERSION" == staging-* ]]; then
+                RELEASE_TITLE_VERSION="${RELEASE_TITLE_VERSION#staging-}"
+              fi
             fi
             FINAL_RELEASE_NAME="Desktop-Test $RELEASE_TITLE_VERSION"
           else
