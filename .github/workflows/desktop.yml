@@ -294,21 +294,32 @@ jobs:
     env:
       CR_FULL_TAG: ${{ needs.Build-macos.outputs.full_tag_name }}
       CR_IS_STAGING: ${{ needs.Build-macos.outputs.is_staging_build }}
-      CR_DISPLAY_VERSION: ${{ needs.Build-macos.outputs.display_version }}
+      CR_DISPLAY_VERSION_FOR_ARTIFACT_AND_CHANGELOG_REF: ${{ needs.Build-macos.outputs.display_version }}
     steps:
       - name: Determine Release Name and Prerelease Flag
         id: release_info
         run: |
           FINAL_RELEASE_NAME=""
           MARK_AS_PRERELEASE=false
+          RELEASE_TITLE_VERSION=""
 
           if [[ "${{ env.CR_IS_STAGING }}" == "true" ]]; then
-          # 測試版
+            # 測試版
             MARK_AS_PRERELEASE=true
-            FINAL_RELEASE_NAME="Desktop-Test ${{ env.CR_DISPLAY_VERSION }}"
+            TEMP_VERSION_PART="${{ env.CR_FULL_TAG#desktop-staging-}}"
+            RELEASE_TITLE_VERSION=$(echo "$TEMP_VERSION_PART" | cut -d'-' -f1)
+
+            if [[ "$TEMP_VERSION_PART" == "$RELEASE_TITLE_VERSION" ]] || [[ "${{ env.CR_FULL_TAG }}" != desktop-staging-* ]]; then
+                RELEASE_TITLE_VERSION="${{ env.CR_DISPLAY_VERSION_FOR_ARTIFACT_AND_CHANGELOG_REF }}"
+                if [[ "$RELEASE_TITLE_VERSION" == staging-* ]]; then
+                  RELEASE_TITLE_VERSION="${RELEASE_TITLE_VERSION#staging-}"
+                fi
+            fi
+            FINAL_RELEASE_NAME="Desktop-Test $RELEASE_TITLE_VERSION"
           else
-          # 正式版
-            FINAL_RELEASE_NAME="Desktop ${{ env.CR_DISPLAY_VERSION }}"
+            # 正式版
+            RELEASE_TITLE_VERSION="${{ env.CR_DISPLAY_VERSION_FOR_ARTIFACT_AND_CHANGELOG_REF }}"
+            FINAL_RELEASE_NAME="Desktop $RELEASE_TITLE_VERSION"
           fi
 
           echo "Release Name: $FINAL_RELEASE_NAME"
@@ -329,14 +340,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ env.CR_IS_STAGING == 'true' && 'staging' || env.CR_DISPLAY_VERSION }}
 
-
       - name: Setup Node.js for changelog
-        # 移除 if 條件
         uses: actions/setup-node@v4
         with:
           node-version: '20.x'
 
-      - name: Install and Generate Changelog
+      - name: Install and Generate Changelog from Yvictor/scone history
         run: |
           npm install -g conventional-changelog-cli
           TARGET_REF_INFO="${{ env.CR_IS_STAGING == 'true' && 'staging branch HEAD' || env.CR_DISPLAY_VERSION }}"
@@ -346,13 +355,12 @@ jobs:
           cat RELEASE_NOTES_DESKTOP.md
           echo "--------------------------------------------------------------------"
 
-      - name: Create/Update GitHub Release
+      - name: Create/Update GitHub Release on Sinotrade/scone
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.CR_FULL_TAG }}
           name: ${{ steps.release_info.outputs.release_name_output }}
-          body_path: ${{ env.CR_IS_STAGING == 'false' && 'RELEASE_NOTES_DESKTOP.md' || '' }}
-          body: ${{ env.CR_IS_STAGING == 'true' && 'Staging release for testing.' || '' }}
+          body_path: RELEASE_NOTES_DESKTOP.md
           prerelease: ${{ steps.release_info.outputs.prerelease_output }}
           files: |
             artifacts/macos-build/*
