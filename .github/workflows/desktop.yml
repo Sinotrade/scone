@@ -294,7 +294,7 @@ jobs:
     env:
       CR_FULL_TAG: ${{ needs.Build-macos.outputs.full_tag_name }}
       CR_IS_STAGING: ${{ needs.Build-macos.outputs.is_staging_build }}
-      CR_DISPLAY_VERSION_FOR_ARTIFACT_AND_CHANGELOG_REF: ${{ needs.Build-macos.outputs.display_version }}
+      CR_DISPLAY_VERSION: ${{ needs.Build-macos.outputs.display_version }}
     steps:
       - name: Determine Release Name and Prerelease Flag
         id: release_info
@@ -307,26 +307,27 @@ jobs:
           CR_IS_STAGING_SHELL="${{ env.CR_IS_STAGING }}"
 
           if [[ "$CR_IS_STAGING_SHELL" == "true" ]]; then
-            # 測試版
             MARK_AS_PRERELEASE=true
-            if [[ "$CR_FULL_TAG_SHELL" == desktop-staging-* ]]; then
-              TEMP_VERSION_PART="${CR_FULL_TAG_SHELL#desktop-staging-}"
-              RELEASE_TITLE_VERSION=$(echo "$TEMP_VERSION_PART" | cut -d'-' -f1)
-            else
-              RELEASE_TITLE_VERSION="${{ env.CR_DISPLAY_VERSION_FOR_ARTIFACT_AND_CHANGELOG_REF }}"
-              if [[ "$RELEASE_TITLE_VERSION" == staging-* ]]; then
-                RELEASE_TITLE_VERSION="${RELEASE_TITLE_VERSION#staging-}"
-              fi
+
+            TEMP_VERSION_PART="${CR_FULL_TAG_SHELL#desktop-staging-}"
+            if [[ "$CR_FULL_TAG_SHELL" == "$TEMP_VERSION_PART" ]]; then
+                TEMP_VERSION_PART="${CR_FULL_TAG_SHELL#desktop-}"
             fi
+
+            RELEASE_TITLE_VERSION=$(echo "$TEMP_VERSION_PART" | cut -d'-' -f1)
             FINAL_RELEASE_NAME="Desktop-Test $RELEASE_TITLE_VERSION"
           else
-            # 正式版
-            RELEASE_TITLE_VERSION="${{ env.CR_DISPLAY_VERSION_FOR_ARTIFACT_AND_CHANGELOG_REF }}"
+            RELEASE_TITLE_VERSION="${{ env.CR_DISPLAY_VERSION }}"
             FINAL_RELEASE_NAME="Desktop $RELEASE_TITLE_VERSION"
           fi
 
-          echo "Release Name: $FINAL_RELEASE_NAME"
+          echo "Input CR_FULL_TAG: $CR_FULL_TAG_SHELL"
+          echo "Input CR_IS_STAGING: $CR_IS_STAGING_SHELL"
+          echo "Input CR_DISPLAY_VERSION (for artifact/ref): ${{ env.CR_DISPLAY_VERSION }}"
+          echo "Calculated RELEASE_TITLE_VERSION for name: $RELEASE_TITLE_VERSION"
+          echo "Final Release Name: $FINAL_RELEASE_NAME"
           echo "Is Prerelease: $MARK_AS_PRERELEASE"
+
           echo "release_name_output=${FINAL_RELEASE_NAME}" >> $GITHUB_OUTPUT
           echo "prerelease_output=${MARK_AS_PRERELEASE}" >> $GITHUB_OUTPUT
 
@@ -366,5 +367,5 @@ jobs:
           body_path: RELEASE_NOTES_DESKTOP.md
           prerelease: ${{ steps.release_info.outputs.prerelease_output }}
           files: |
-            artifacts/macos-build
-            artifacts/windows-build
+            artifacts/macos-build/*
+            artifacts/windows-build/*
