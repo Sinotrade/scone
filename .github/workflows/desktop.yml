@@ -307,6 +307,7 @@ jobs:
           CR_IS_STAGING_SHELL="${{ env.CR_IS_STAGING }}"
 
           if [[ "$CR_IS_STAGING_SHELL" == "true" ]]; then
+            # 測試版
             MARK_AS_PRERELEASE=true
             if [[ "$CR_FULL_TAG_SHELL" == desktop-staging-* ]]; then
               TEMP_VERSION_PART="${CR_FULL_TAG_SHELL#desktop-staging-}"
@@ -365,5 +366,5 @@ jobs:
           body_path: RELEASE_NOTES_DESKTOP.md
           prerelease: ${{ steps.release_info.outputs.prerelease_output }}
           files: |
-            artifacts/macos-build/*
-            artifacts/windows-build/*
+            artifacts/macos-build
+            artifacts/windows-build
