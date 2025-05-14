@@ -18,6 +18,13 @@ jobs:
     environment: desktop-release
     env:
       APP_NAME: Scone
+      # 簽名相關
+      MACOS_CERT_BASE64_FROM_SECRET: ${{ secrets.APP_STORE_CONNECT_MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 }}
+      MACOS_CERT_PWD_FROM_SECRET: ${{ secrets.APP_STORE_CONNECT_MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+      # 公證相關
+      APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD_SECRET: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID_SECRET: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
     outputs:
       tag_version: ${{ steps.version_context.outputs.tag_version_output }}
       is_staging_build: ${{ steps.version_context.outputs.is_staging_build_output }}
@@ -76,6 +83,34 @@ jobs:
         run: |
           echo "${{ secrets.ENV_FILE }}" > .env
 
+      - name: Import Certificate and Set Signing Identity
+        id: import_and_set_identity
+        if: env.MACOS_CERT_BASE64_FROM_SECRET != '' && env.MACOS_CERT_PWD_FROM_SECRET != ''
+        env:
+          KEYCHAIN_TEMP_PASSWORD: "temp_ci_keychain_pwd"
+        run: |
+          echo "Importing Apple Developer ID Certificate..."
+          echo "${{ env.MACOS_CERT_BASE64_FROM_SECRET }}" | base64 --decode > certificate.p12
+          # 使用 env 中的 KEYCHAIN_TEMP_PASSWORD
+          security create-keychain -p "${{ env.KEYCHAIN_TEMP_PASSWORD }}" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "${{ env.KEYCHAIN_TEMP_PASSWORD }}" build.keychain
+          security import certificate.p12 -k build.keychain -P "${{ env.MACOS_CERT_PWD_FROM_SECRET }}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${{ env.KEYCHAIN_TEMP_PASSWORD }}" build.keychain
+          rm certificate.p12
+
+          echo "Verifying certificate and extracting signing identity..."
+          CERT_INFO=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -n 1)
+          if [ -z "$CERT_INFO" ]; then
+            echo "::error ::Developer ID Application certificate not found in keychain."
+            security find-identity -v -p codesigning build.keychain
+            exit 1
+          fi
+          CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
+          echo "Found signing identity: $CERT_ID"
+          echo "apple_signing_identity_output=$CERT_ID" >> $GITHUB_OUTPUT
+          echo "Certificate imported and identity set successfully."
+
       - name: Setup Rust Environment
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
@@ -84,11 +119,16 @@ jobs:
           rustup target add x86_64-apple-darwin
           rustup target add aarch64-apple-darwin
 
-      - name: Build macOS Universal App
+      - name: Build macOS Universal App (with explicit signing identity)
         run: pnpm build:mac
         env:
           # 如果是 staging build，VITE_ENV 為 staging，否則為 production
-          VITE_ENV: ${{ env.IS_STAGING_BUILD == 'true' && 'staging' || 'production' }}
+          VITE_ENV: ${{ steps.version_context.outputs.is_staging_build_output == 'true' && 'staging' || 'production' }}
+          APPLE_SIGNING_IDENTITY: ${{ steps.import_and_set_identity.outputs.apple_signing_identity_output }}
+          # 只有 Production build 才會傳遞公證所需的環境變數，觸發公證
+          APPLE_ID: ${{ steps.version_context.outputs.is_staging_build_output == 'false' && env.APPLE_ID_SECRET || '' }}
+          APPLE_PASSWORD: ${{ steps.version_context.outputs.is_staging_build_output == 'false' && env.APPLE_PASSWORD_SECRET || '' }}
+          APPLE_TEAM_ID: ${{ steps.version_context.outputs.is_staging_build_output == 'false' && env.APPLE_TEAM_ID_SECRET || '' }}
 
       - name: Package macOS Artifacts
         run: |
