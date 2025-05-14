@@ -3,29 +3,54 @@ name: "Create Release Mobile Assets"
 on:
   push:
     tags:
-      - "*"
+      - "mobile-*"
 
 jobs:
   Build:
-    name: Build
+    name: Build Mobile Assets
     runs-on: macos-latest
     environment: mobile-release
+    outputs:
+      full_tag_name_output: ${{ steps.version_context.outputs.full_tag_name_output }}
+      is_staging_build_output: ${{ steps.version_context.outputs.is_staging_build_output }}
+      display_version_output: ${{ steps.version_context.outputs.display_version_output }}
     steps:
-      - name: fetch repo source for Formal release
-        if: "!startsWith(github.ref, 'refs/tags/staging-')"
-        uses: actions/checkout@v4
-        with:
-          repository: "Yvictor/scone"
-          token: ${{ secrets.SCONE_GITHUB_TOKEN }}
-          ref: master
+      - name: Determine Version, Staging Context, and Display Version
+        id: version_context
+        run: |
+          TARGET_TAG="${{ github.ref_name }}"
+          IS_STAGING=false
+          VERSION_FOR_DISPLAY=""
 
-      - name: fetch repo source for Staging staging
-        if: "startsWith(github.ref, 'refs/tags/staging-')"
+          echo "Processing Mobile Tag: $TARGET_TAG"
+          if [[ "$TARGET_TAG" == mobile-staging-* ]]; then
+            IS_STAGING=true
+            VERSION_FOR_DISPLAY="${TARGET_TAG#mobile-}"
+          elif [[ "$TARGET_TAG" == mobile-* ]]; then
+            IS_STAGING=false
+            VERSION_FOR_DISPLAY="${TARGET_TAG#mobile-}"
+          else
+            echo "::warning ::Tag '$TARGET_TAG' does not start with 'mobile-'. This is unexpected."
+            IS_STAGING=true # Fallback
+            VERSION_FOR_DISPLAY="$TARGET_TAG"
+          fi
+          echo "Full Mobile Tag Name: $TARGET_TAG"
+          echo "Is Mobile Staging Build: $IS_STAGING"
+          echo "Mobile Display Version: $VERSION_FOR_DISPLAY"
+          # 設置環境變數 (使用 M_ 前綴)
+          echo "M_TAG_VERSION_ENV=${TARGET_TAG}" >> $GITHUB_ENV
+          echo "M_IS_STAGING_BUILD_ENV=${IS_STAGING}" >> $GITHUB_ENV
+          echo "M_DISPLAY_VERSION_ENV=${VERSION_FOR_DISPLAY}" >> $GITHUB_ENV
+          echo "full_tag_name_output=${TARGET_TAG}" >> $GITHUB_OUTPUT
+          echo "is_staging_build_output=${IS_STAGING}" >> $GITHUB_OUTPUT
+          echo "display_version_output=${VERSION_FOR_DISPLAY}" >> $GITHUB_OUTPUT
+
+      - name: fetch repo source
         uses: actions/checkout@v4
         with:
           repository: "Yvictor/scone"
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
-          ref: staging
+          ref: ${{ env.M_IS_STAGING_BUILD_ENV == 'true' && 'staging' || 'master' }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -45,17 +70,10 @@ jobs:
         run: |
           echo "${{ secrets.ENV_FILE }}" > .env
 
-      - name: Build bundle for release
-        if: "!startsWith(github.ref, 'refs/tags/staging-')"
+      - name: Build bundle for mobile
         run: pnpm build
         env:
-          VITE_ENV: 'production'
-
-      - name: Build bundle for staging
-        if: "startsWith(github.ref, 'refs/tags/staging-')"
-        run: pnpm build
-        env:
-          VITE_ENV: 'staging'
+          VITE_ENV: ${{ env.M_IS_STAGING_BUILD_ENV == 'true' && 'staging' || 'production' }}
 
       - name: Sync Capacitor
         run: pnpm sync
@@ -96,43 +114,51 @@ jobs:
       - name: Upload production-ready bundle zip
         uses: actions/upload-artifact@v4
         with:
-          name: mobile-ota-bundle
+          name: mobile-ota-bundle-${{ env.M_DISPLAY_VERSION_ENV }}
           path: |
             *.zip
             *.checksum
             key
 
   Release:
-    name: Release
+    name: Create GitHub Release (Mobile)
     needs: Build
-    if: "!startsWith(github.ref, 'refs/tags/staging-')"
+    if: needs.Build.outputs.is_staging_build_output == 'false'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      CR_FULL_TAG_MOBILE: ${{ needs.Build.outputs.full_tag_name_output }}
+      CR_DISPLAY_VERSION_MOBILE: ${{ needs.Build.outputs.display_version_output }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout full history for changelog
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Download changelog artifact
-        uses: actions/download-artifact@v3
+      - name: Download mobile OTA bundle artifact
+        uses: actions/download-artifact@v4
         with:
-            name: mobile-ota-bundle
+          name: mobile-ota-bundle-${{ env.CR_DISPLAY_VERSION_MOBILE }}
+          path: mobile-release-assets/
 
       - name: Install conventional-changelog-cli
         run: npm install -g conventional-changelog-cli
 
-      - name:  Generate changelog
-        id: changelog
+      - name: Generate Changelog for Release Notes
+        id: mobile_changelog
         run: |
-          conventional-changelog -p conventionalcommits -r 2 -o CHANGELOGFULL.md
-          tail -n +5 CHANGELOGFULL.md >> ${{ github.workspace }}-CHANGELOG.md
+          conventional-changelog -p conventionalcommits -r 1 --commit-path . > RELEASE_NOTES_MOBILE.md
 
-      - name: create github release
-        uses: softprops/action-gh-release@v1
+      - name: Create GitHub Release (Mobile)
+        uses: softprops/action-gh-release@v2
         with:
-          token: ${{ secrets.SINOTRADE_SCONE_GITHUB_TOKEN }}
-          prerelease: false
-          body_path: ${{ github.workspace }}-CHANGELOG.md
+          token: ${{ secrets.SCONE_GITHUB_TOKEN }}
+          tag_name: ${{ env.CR_FULL_TAG_MOBILE }}
+          name: "Mobile ${{ env.CR_DISPLAY_VERSION_MOBILE }}"
+          body_path: RELEASE_NOTES_MOBILE.md
+          prerelease: false # 此 job 只處理正式 release
           files: |
-            *.zip
-            *.checksum
-            key
+            mobile-release-assets/*.zip
+            mobile-release-assets/*.checksum
+            mobile-release-assets/key
