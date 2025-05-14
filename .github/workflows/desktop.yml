@@ -111,7 +111,7 @@ jobs:
         with:
           name: macos-build
           path: |
-            *.app.tar.gz
+            # *.app.tar.gz
             *.dmg
 
   Build-windows:
@@ -237,12 +237,30 @@ jobs:
       - name: Determine Release Name and Prerelease Flag
         id: release_info
         run: |
-          RELEASE_NAME_VALUE="Desktop ${{ env.TAG_VERSION }}"
+          RAW_TAG_VERSION="${{ env.TAG_VERSION }}" # 原始的 tag
+          DISPLAY_VERSION="" # 顯示的版本號
+          RELEASE_NAME_VALUE=""
           PRERELEASE_FLAG_VALUE=false
-          if [[ "${{ env.IS_STAGING_BUILD }}" == "true" ]]; then # 或者更健壯的比較 (env.IS_STAGING_BUILD == 'true' || env.IS_STAGING_BUILD == 'True')
-            RELEASE_NAME_VALUE="Desktop-Test ${{ env.TAG_VERSION }}"
+
+          if [[ "${{ env.IS_STAGING_BUILD }}" == "true" ]]; then
             PRERELEASE_FLAG_VALUE=true
+            # 測試版(只取主版號)
+            if [[ "$RAW_TAG_VERSION" == staging-* ]]; then
+              EXTRACTED_PART="${RAW_TAG_VERSION#staging-}"
+              DISPLAY_VERSION=$(echo "$EXTRACTED_PART" | cut -d'-' -f1)
+              RELEASE_NAME_VALUE="Desktop-Test $DISPLAY_VERSION"
+            else
+              # 如果是手動觸發且沒有 "staging-" 前綴
+              DISPLAY_VERSION="$RAW_TAG_VERSION"
+              RELEASE_NAME_VALUE="Desktop-Test $DISPLAY_VERSION"
+            fi
+          else
+            # 正式版
+            DISPLAY_VERSION="$RAW_TAG_VERSION"
+            RELEASE_NAME_VALUE="Desktop $DISPLAY_VERSION"
           fi
+
+          echo "Final Release Name: $RELEASE_NAME_VALUE"
           echo "release_name=${RELEASE_NAME_VALUE}" >> $GITHUB_OUTPUT
           echo "prerelease=${PRERELEASE_FLAG_VALUE}" >> $GITHUB_OUTPUT
 
@@ -276,7 +294,7 @@ jobs:
           tag_name: ${{ env.TAG_VERSION }}
           name: ${{ steps.release_info.outputs.release_name }}
           body_path: ${{ (env.IS_STAGING_BUILD == 'false' || env.IS_STAGING_BUILD == 'False') && 'RELEASE_NOTES.md' || '' }}
-          body: ${{ (env.IS_STAGING_BUILD == 'true' || env.IS_STAGING_BUILD == 'True') && 'Staging release for testing (manual or staging tag).' || '' }}
+          body: ${{ (env.IS_STAGING_BUILD == 'true' || env.IS_STAGING_BUILD == 'True') && 'Staging release for testing.' || '' }}
           prerelease: ${{ steps.release_info.outputs.prerelease }}
           files: |
             artifacts/macos-build/*
