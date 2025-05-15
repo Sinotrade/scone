@@ -137,7 +137,7 @@ jobs:
           repository: "Yvictor/scone"
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
           fetch-depth: 0
-          ref: ${{ env.CR_FULL_TAG_MOBILE }}
+          ref: ${{ env.CR_DISPLAY_VERSION_MOBILE }}
           path: 'changelog_repo'
 
       - name: Download mobile OTA bundle artifact
