@@ -395,7 +395,7 @@ jobs:
           repository: "Yvictor/scone"
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
           fetch-depth: 0
-          ref: ${{ env.CR_IS_STAGING == 'true' && 'staging' || steps.release_info.outputs.canonical_tag_output }}
+          ref: ${{ env.CR_IS_STAGING == 'true' && 'staging' || env.CR_DISPLAY_VERSION }}
           path: 'changelog_repo'
 
       - name: Setup Node.js for changelog
