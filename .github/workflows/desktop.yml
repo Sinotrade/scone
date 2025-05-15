@@ -149,28 +149,56 @@ jobs:
           APPLE_TEAM_ID: ${{ env.APPLE_TEAM_ID_SECRET }}
 
       - name: Package macOS Artifacts
+        id: package_macos # MODIFIED: Added id for output referencing
         run: |
           CONFIG_APP_NAME_RAW=$(jq -r '.package.productName // .package.name // env.APP_NAME' src-tauri/tauri.conf.json)
           SANITIZED_APP_NAME=$(echo "$CONFIG_APP_NAME_RAW" | sed 's/ /-/g')
-          APP_DIR="src-tauri/target/universal-apple-darwin/release/bundle/macos/${SANITIZED_APP_NAME}.app"
+
+          echo "DEBUG: SANITIZED_APP_NAME='${SANITIZED_APP_NAME}'"
+          echo "DEBUG: D_DISPLAY_VERSION_ENV='${{ env.D_DISPLAY_VERSION_ENV }}'"
+
+          APP_DIR_NAME="${SANITIZED_APP_NAME}.app"
+          APP_DIR_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/${APP_DIR_NAME}"
+
+          # List files in bundle directory for debugging
+          echo "DEBUG: Listing contents of src-tauri/target/universal-apple-darwin/release/bundle/macos/"
+          ls -l "src-tauri/target/universal-apple-darwin/release/bundle/macos/"
+          echo "DEBUG: Listing contents of src-tauri/target/universal-apple-darwin/release/bundle/dmg/"
+          ls -l "src-tauri/target/universal-apple-darwin/release/bundle/dmg/"
+
           DMG_FILE_PATTERN="src-tauri/target/universal-apple-darwin/release/bundle/dmg/${SANITIZED_APP_NAME}_*universal.dmg"
-          DMG_FILE_FOUND=$(ls $DMG_FILE_PATTERN | head -n 1)
+          DMG_FILE_FOUND=$(ls $DMG_FILE_PATTERN 2>/dev/null | head -n 1) # Added 2>/dev/null to suppress ls error if no match
 
-          APP_ARCHIVE="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.app.tar.gz"
-          FINAL_DMG_NAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.dmg"
+          if [ -z "$DMG_FILE_FOUND" ]; then
+            echo "::error ::DMG file matching pattern '$DMG_FILE_PATTERN' not found."
+            exit 1
+          fi
+          if [ ! -d "$APP_DIR_PATH" ]; then # Check app directory specifically
+            echo "::error ::App directory '$APP_DIR_PATH' not found."
+            exit 1
+          fi
 
-          echo "Archiving $APP_DIR to $APP_ARCHIVE"
-          tar czf $APP_ARCHIVE -C "$(dirname "$APP_DIR")" "$(basename "$APP_DIR")"
-          echo "Moving $DMG_FILE_FOUND to $FINAL_DMG_NAME"
-          mv "$DMG_FILE_FOUND" "$FINAL_DMG_NAME"
+          APP_ARCHIVE_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.app.tar.gz"
+          FINAL_DMG_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.dmg"
+
+          echo "Archiving $APP_DIR_PATH to $APP_ARCHIVE_BASENAME"
+          tar czf "$APP_ARCHIVE_BASENAME" -C "$(dirname "$APP_DIR_PATH")" "$(basename "$APP_DIR_PATH")"
+
+          echo "Moving $DMG_FILE_FOUND to $FINAL_DMG_BASENAME"
+          mv "$DMG_FILE_FOUND" "$FINAL_DMG_BASENAME"
+
+          echo "DEBUG: Workspace files after packaging:"
+          ls -l
+
+          echo "app_archive_output=${APP_ARCHIVE_BASENAME}" >> $GITHUB_OUTPUT
+          echo "dmg_name_output=${FINAL_DMG_BASENAME}" >> $GITHUB_OUTPUT
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-build
           path: |
-            # *.app.tar.gz
-            *.dmg
+            ${{ steps.package_macos.outputs.dmg_name_output }}
 
   Build-windows:
     name: Build Windows App (x64)
@@ -185,7 +213,7 @@ jobs:
     steps:
       - name: Determine Version and Staging Context
         id: version_context
-        shell: pwsh # 使用 PowerShell
+        shell: pwsh
         run: |
           $TARGET_TAG = ""
           $IS_STAGING = $false
@@ -213,7 +241,7 @@ jobs:
             $VERSION_FOR_DISPLAY = $TARGET_TAG.Substring("desktop-".Length)
           } else {
             Write-Warning "Tag '$TARGET_TAG' does not start with 'desktop-'. This is unexpected."
-            $IS_STAGING = $true
+            $IS_STAGING = $true # Defaulting to staging for unexpected tags might need review
             $VERSION_FOR_DISPLAY = $TARGET_TAG
           }
 
@@ -223,10 +251,12 @@ jobs:
 
           # 設置環境變數 (使用 D_ 前綴)
           "D_TAG_VERSION_ENV=$TARGET_TAG" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "D_IS_STAGING_BUILD_ENV=$IS_STAGING" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # PowerShell boolean to string is 'True' or 'False', ensure this is handled consistently if read by bash
+          "D_IS_STAGING_BUILD_ENV=$($IS_STAGING.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "D_DISPLAY_VERSION_ENV=$VERSION_FOR_DISPLAY" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
           "full_tag_name_output=$TARGET_TAG" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "is_staging_build_output=$IS_STAGING" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "is_staging_build_output=$($IS_STAGING.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "display_version_output=$VERSION_FOR_DISPLAY" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: fetch repo source
@@ -267,16 +297,36 @@ jobs:
 
       - name: Locate Windows Artifact
         id: locate_msi
+        shell: pwsh
         run: |
           $configAppNameRaw = (Get-Content -Raw -Path src-tauri/tauri.conf.json | ConvertFrom-Json).package.productName
           if (-not $configAppNameRaw) { $configAppNameRaw = (Get-Content -Raw -Path src-tauri/tauri.conf.json | ConvertFrom-Json).package.name }
           if (-not $configAppNameRaw) { $configAppNameRaw = "${{ env.APP_NAME }}" }
           $sanitizedAppName = $configAppNameRaw -replace ' ', '-'
+
+          Write-Host "DEBUG: SANITIZED_APP_NAME='${sanitizedAppName}'"
+          Write-Host "DEBUG: D_DISPLAY_VERSION_ENV='${{ env.D_DISPLAY_VERSION_ENV }}'"
+
           $msiSearchPattern = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/${sanitizedAppName}_*x64_en-US.msi"
+          Write-Host "DEBUG: MSI Search Pattern: $msiSearchPattern"
+
+          # List files in the MSI bundle directory for debugging
+          Write-Host "DEBUG: Listing contents of src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/"
+          Get-ChildItem -Path "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/" -ErrorAction SilentlyContinue
+
           $msiPath = Get-ChildItem -Path $msiSearchPattern | Select-Object -First 1 -ExpandProperty FullName
           if (-not $msiPath) { Write-Error "MSI file not found with pattern: $msiSearchPattern."; exit 1 }
+
           $msiName = "${sanitizedAppName}_${{ env.D_DISPLAY_VERSION_ENV }}_x64.msi"
-          Copy-Item -Path $msiPath -Destination $msiName
+          Write-Host "Original MSI Path: $msiPath"
+          Write-Host "Target MSI Name for upload: $msiName"
+
+          Copy-Item -Path $msiPath -Destination $msiName -Force
+          if (-not (Test-Path $msiName)) { Write-Error "Failed to copy MSI to $msiName"; exit 1}
+
+          Write-Host "DEBUG: Workspace files after packaging:"
+          Get-ChildItem . | Select-Object Name, Length
+
           "msi_name=$msiName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Upload Windows Artifact
@@ -303,27 +353,32 @@ jobs:
           MARK_AS_PRERELEASE=false
           RELEASE_TITLE_VERSION=""
 
+          # Use quotes for string comparisons with shell environment variables
           CR_FULL_TAG_SHELL="${{ env.CR_FULL_TAG }}"
-          CR_IS_STAGING_SHELL="${{ env.CR_IS_STAGING }}"
+          CR_IS_STAGING_SHELL="${{ env.CR_IS_STAGING }}" # This comes from macos output
+
+          echo "DEBUG: CR_FULL_TAG_SHELL='${CR_FULL_TAG_SHELL}'"
+          echo "DEBUG: CR_IS_STAGING_SHELL='${CR_IS_STAGING_SHELL}' (from macOS job)"
+          echo "DEBUG: CR_DISPLAY_VERSION='${{ env.CR_DISPLAY_VERSION }}'"
+
 
           if [[ "$CR_IS_STAGING_SHELL" == "true" ]]; then
             MARK_AS_PRERELEASE=true
-
-            TEMP_VERSION_PART="${CR_FULL_TAG_SHELL#desktop-staging-}"
-            if [[ "$CR_FULL_TAG_SHELL" == "$TEMP_VERSION_PART" ]]; then
+            # Refined logic for staging version display
+            TEMP_VERSION_PART="${CR_FULL_TAG_SHELL#desktop-staging-}" 
+            if [[ "$CR_FULL_TAG_SHELL" == "$TEMP_VERSION_PART" ]]; then # If not desktop-staging- prefix, try desktop-
                 TEMP_VERSION_PART="${CR_FULL_TAG_SHELL#desktop-}"
             fi
-
-            RELEASE_TITLE_VERSION=$(echo "$TEMP_VERSION_PART" | cut -d'-' -f1)
-            FINAL_RELEASE_NAME="Desktop-Test $RELEASE_TITLE_VERSION"
+            # Extract segment before first potential hyphen (e.g., manual-id or 0.1.0 from staging-0.1.0)
+            RELEASE_TITLE_VERSION=$(echo "$TEMP_VERSION_PART" | awk -F'-' '{print $1}')
+            # If TEMP_VERSION_PART was like "manual-runid", RELEASE_TITLE_VERSION will be "manual".
+            # If it was "0.1.0-beta", it will be "0.1.0". This might need adjustment based on desired title.
+            FINAL_RELEASE_NAME="Desktop-Test $TEMP_VERSION_PART" # Using full temp_version_part for clarity
           else
-            RELEASE_TITLE_VERSION="${{ env.CR_DISPLAY_VERSION }}"
+            RELEASE_TITLE_VERSION="${{ env.CR_DISPLAY_VERSION }}" # e.g. 0.1.0
             FINAL_RELEASE_NAME="Desktop $RELEASE_TITLE_VERSION"
           fi
 
-          echo "Input CR_FULL_TAG: $CR_FULL_TAG_SHELL"
-          echo "Input CR_IS_STAGING: $CR_IS_STAGING_SHELL"
-          echo "Input CR_DISPLAY_VERSION (for artifact/ref): ${{ env.CR_DISPLAY_VERSION }}"
           echo "Calculated RELEASE_TITLE_VERSION for name: $RELEASE_TITLE_VERSION"
           echo "Final Release Name: $FINAL_RELEASE_NAME"
           echo "Is Prerelease: $MARK_AS_PRERELEASE"
@@ -336,13 +391,23 @@ jobs:
         with:
           path: artifacts/
 
+      - name: List downloaded artifacts # ADDED: Debug step
+        run: |
+          echo "Listing downloaded artifacts in ./artifacts/ :"
+          ls -lR artifacts/
+          echo "--- macOS Build (expected in artifacts/macos-build/): ---"
+          ls -l artifacts/macos-build/
+          echo "--- Windows Build (expected in artifacts/windows-build/): ---"
+          ls -l artifacts/windows-build/
+
       - name: Checkout full history for changelog generation
         uses: actions/checkout@v4
         with:
           repository: "Yvictor/scone"
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
           fetch-depth: 0
-          ref: ${{ env.CR_IS_STAGING == 'true' && 'staging' || env.CR_DISPLAY_VERSION }}
+          # MODIFIED: Use the actual tag for release or 'staging' branch for staging builds
+          ref: ${{ env.CR_IS_STAGING == 'true' && 'staging' || env.CR_FULL_TAG }}
 
       - name: Setup Node.js for changelog
         uses: actions/setup-node@v4
