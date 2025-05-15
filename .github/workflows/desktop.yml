@@ -353,29 +353,23 @@ jobs:
           MARK_AS_PRERELEASE=false
           RELEASE_TITLE_VERSION=""
 
-          # Use quotes for string comparisons with shell environment variables
           CR_FULL_TAG_SHELL="${{ env.CR_FULL_TAG }}"
-          CR_IS_STAGING_SHELL="${{ env.CR_IS_STAGING }}" # This comes from macos output
+          CR_IS_STAGING_SHELL="${{ env.CR_IS_STAGING }}"
 
           echo "DEBUG: CR_FULL_TAG_SHELL='${CR_FULL_TAG_SHELL}'"
           echo "DEBUG: CR_IS_STAGING_SHELL='${CR_IS_STAGING_SHELL}' (from macOS job)"
           echo "DEBUG: CR_DISPLAY_VERSION='${{ env.CR_DISPLAY_VERSION }}'"
 
-
           if [[ "$CR_IS_STAGING_SHELL" == "true" ]]; then
             MARK_AS_PRERELEASE=true
-            # Refined logic for staging version display
-            TEMP_VERSION_PART="${CR_FULL_TAG_SHELL#desktop-staging-}" 
-            if [[ "$CR_FULL_TAG_SHELL" == "$TEMP_VERSION_PART" ]]; then # If not desktop-staging- prefix, try desktop-
+            TEMP_VERSION_PART="${CR_FULL_TAG_SHELL#desktop-staging-}"
+            if [[ "$CR_FULL_TAG_SHELL" == "$TEMP_VERSION_PART" ]]; then
                 TEMP_VERSION_PART="${CR_FULL_TAG_SHELL#desktop-}"
             fi
-            # Extract segment before first potential hyphen (e.g., manual-id or 0.1.0 from staging-0.1.0)
             RELEASE_TITLE_VERSION=$(echo "$TEMP_VERSION_PART" | awk -F'-' '{print $1}')
-            # If TEMP_VERSION_PART was like "manual-runid", RELEASE_TITLE_VERSION will be "manual".
-            # If it was "0.1.0-beta", it will be "0.1.0". This might need adjustment based on desired title.
-            FINAL_RELEASE_NAME="Desktop-Test $TEMP_VERSION_PART" # Using full temp_version_part for clarity
+            FINAL_RELEASE_NAME="Desktop-Test $TEMP_VERSION_PART"
           else
-            RELEASE_TITLE_VERSION="${{ env.CR_DISPLAY_VERSION }}" # e.g. 0.1.0
+            RELEASE_TITLE_VERSION="${{ env.CR_DISPLAY_VERSION }}"
             FINAL_RELEASE_NAME="Desktop $RELEASE_TITLE_VERSION"
           fi
 
@@ -400,14 +394,14 @@ jobs:
           echo "--- Windows Build (expected in artifacts/windows-build/): ---"
           ls -l artifacts/windows-build/
 
-      - name: Checkout full history for changelog generation
+      - name: Checkout Yvictor/scone for changelog generation
         uses: actions/checkout@v4
         with:
           repository: "Yvictor/scone"
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
           fetch-depth: 0
-          # MODIFIED: Use the actual tag for release or 'staging' branch for staging builds
           ref: ${{ env.CR_IS_STAGING == 'true' && 'staging' || env.CR_FULL_TAG }}
+          path: 'changelog_repo'
 
       - name: Setup Node.js for changelog
         uses: actions/setup-node@v4
@@ -415,18 +409,38 @@ jobs:
           node-version: '20.x'
 
       - name: Install and Generate Changelog from Yvictor/scone history
+        working-directory: changelog_repo
         run: |
           npm install -g conventional-changelog-cli
-          TARGET_REF_INFO="${{ env.CR_IS_STAGING == 'true' && 'staging branch HEAD' || env.CR_DISPLAY_VERSION }}"
-          echo "Attempting to generate changelog from Yvictor/scone for ref: $TARGET_REF_INFO (public tag: ${{ env.CR_FULL_TAG }})"
-          conventional-changelog -p conventionalcommits -r 1 --commit-path . > RELEASE_NOTES_DESKTOP.md || echo "Changelog generation for $TARGET_REF_INFO might have issues or be empty."
+          TARGET_REF_INFO="${{ env.CR_IS_STAGING == 'true' && 'staging branch HEAD' || env.CR_FULL_TAG }}"
+          echo "Attempting to generate changelog from Yvictor/scone (path: $(pwd)) for ref: $TARGET_REF_INFO (public tag: ${{ env.CR_FULL_TAG }})"
+          # Generate changelog and output it to the main workspace directory for the release action
+          conventional-changelog -p conventionalcommits -r 1 --commit-path . > ../RELEASE_NOTES_DESKTOP.md || echo "Changelog generation for $TARGET_REF_INFO might have issues or be empty."
+
           echo "--- Generated Desktop Release Notes (from Yvictor/scone history) ---"
-          cat RELEASE_NOTES_DESKTOP.md
+          cat ../RELEASE_NOTES_DESKTOP.md
           echo "--------------------------------------------------------------------"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: List downloaded artifacts
+        run: |
+          echo "Listing downloaded artifacts in $(pwd)/artifacts/ :"
+          ls -lR artifacts/
+          echo "--- macOS Build (expected in artifacts/macos-build/): ---"
+          ls -l artifacts/macos-build/
+          echo "--- Windows Build (expected in artifacts/windows-build/): ---"
+          ls -l artifacts/windows-build/
+          echo "--- Release Notes file in workspace root: ---"
+          ls -l ${{ github.workspace }}/RELEASE_NOTES_DESKTOP.md
 
       - name: Create/Update GitHub Release on Sinotrade/scone
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ env.CR_FULL_TAG }}
           name: ${{ steps.release_info.outputs.release_name_output }}
           body_path: RELEASE_NOTES_DESKTOP.md
