@@ -362,6 +362,7 @@ jobs:
           echo "DEBUG Input: CR_FULL_TAG_SHELL='${CR_FULL_TAG_SHELL}'"
 
           if [[ "$CR_IS_STAGING_SHELL" == "true" ]]; then
+            # 測試版
             MARK_AS_PRERELEASE=true
             VERSION_PART_AFTER_STAGING_PREFIX="${CR_DISPLAY_VERSION_SHELL#staging-}"
             BASE_VERSION_FOR_TITLE=$(echo "$VERSION_PART_AFTER_STAGING_PREFIX" | cut -d'-' -f1)
@@ -374,7 +375,7 @@ jobs:
             FINAL_RELEASE_NAME="Desktop-Test $BASE_VERSION_FOR_TITLE"
             CANONICAL_TAG_FOR_RELEASE="desktop-staging-v${BASE_VERSION_FOR_TITLE}"
           else
-            # Production build
+            # 正式版
             MARK_AS_PRERELEASE=false # Explicitly false for production
             FINAL_RELEASE_NAME="Desktop $CR_DISPLAY_VERSION_SHELL"
             CANONICAL_TAG_FOR_RELEASE="$CR_FULL_TAG_SHELL"
@@ -428,6 +429,45 @@ jobs:
           ls -l artifacts/windows-build/
           echo "--- Release Notes file in workspace root: ---"
           ls -l ${{ github.workspace }}/RELEASE_NOTES_DESKTOP.md
+
+      - name: Clean up old DMG/MSI assets from Staging Release
+        if: steps.release_info.outputs.prerelease_output == 'true' # Only run for staging/prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release_info.outputs.canonical_tag_output }}
+        run: |
+          echo "Attempting to clean up .dmg and .msi assets for release tag: $RELEASE_TAG"
+
+          if ! gh release view "$RELEASE_TAG" --json id --jq .id > /dev/null 2>&1 ; then
+            echo "Release $RELEASE_TAG does not exist yet. No assets to clean up."
+            exit 0 # Successfully exit, as there's nothing to clean
+          fi
+
+          echo "Fetching existing .dmg and .msi assets for release $RELEASE_TAG..."
+
+          ASSET_LIST_FILE=$(mktemp)
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | select(.name | test("(?i)\\.(dmg|msi)$")) | .name' > "$ASSET_LIST_FILE"
+
+          if [ ! -s "$ASSET_LIST_FILE" ]; then # Check if file is empty (no assets found)
+            echo "No .dmg or .msi assets found to delete for release $RELEASE_TAG."
+          else
+            echo "Found assets to delete:"
+            cat "$ASSET_LIST_FILE"
+
+            while IFS= read -r ASSET_NAME; do
+              if [ -n "$ASSET_NAME" ]; then # Ensure ASSET_NAME is not empty
+                echo "Deleting asset: '$ASSET_NAME' from release $RELEASE_TAG..."
+                gh release delete-asset "$RELEASE_TAG" "$ASSET_NAME" --repo "$GITHUB_REPOSITORY" -y
+                if [ $? -eq 0 ]; then
+                  echo "Successfully deleted '$ASSET_NAME'."
+                else
+                  echo "::warning ::Failed to delete asset '$ASSET_NAME' or it was already removed."
+                fi
+              fi
+            done < "$ASSET_LIST_FILE"
+            echo "Finished cleaning up old .dmg and .msi assets."
+          fi
+          rm "$ASSET_LIST_FILE"
 
       - name: Create/Update GitHub Release on Sinotrade/scone
         uses: softprops/action-gh-release@v2
