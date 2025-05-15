@@ -436,27 +436,27 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.release_info.outputs.canonical_tag_output }}
         run: |
-          echo "Attempting to clean up .dmg and .msi assets for release tag: $RELEASE_TAG"
+          echo "Attempting to clean up .dmg and .msi assets for release tag: $RELEASE_TAG on repo $GITHUB_REPOSITORY"
 
-          if ! gh release view "$RELEASE_TAG" --json id --jq .id > /dev/null 2>&1 ; then
-            echo "Release $RELEASE_TAG does not exist yet. No assets to clean up."
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json id --jq .id > /dev/null 2>&1 ; then
+            echo "Release $RELEASE_TAG does not exist yet on $GITHUB_REPOSITORY. No assets to clean up."
             exit 0 # Successfully exit, as there's nothing to clean
           fi
 
-          echo "Fetching existing .dmg and .msi assets for release $RELEASE_TAG..."
+          echo "Fetching existing .dmg and .msi assets for release $RELEASE_TAG from $GITHUB_REPOSITORY..."
 
           ASSET_LIST_FILE=$(mktemp)
-          gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | select(.name | test("(?i)\\.(dmg|msi)$")) | .name' > "$ASSET_LIST_FILE"
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | select(.name | test("(?i)\\.(dmg|msi)$")) | .name' > "$ASSET_LIST_FILE"
 
           if [ ! -s "$ASSET_LIST_FILE" ]; then # Check if file is empty (no assets found)
-            echo "No .dmg or .msi assets found to delete for release $RELEASE_TAG."
+            echo "No .dmg or .msi assets found to delete for release $RELEASE_TAG on $GITHUB_REPOSITORY."
           else
-            echo "Found assets to delete:"
+            echo "Found assets to delete on $GITHUB_REPOSITORY:"
             cat "$ASSET_LIST_FILE"
 
             while IFS= read -r ASSET_NAME; do
-              if [ -n "$ASSET_NAME" ]; then # Ensure ASSET_NAME is not empty
-                echo "Deleting asset: '$ASSET_NAME' from release $RELEASE_TAG..."
+              if [ -n "$ASSET_NAME" ]; then
+                echo "Deleting asset: '$ASSET_NAME' from release $RELEASE_TAG on $GITHUB_REPOSITORY..."
                 gh release delete-asset "$RELEASE_TAG" "$ASSET_NAME" --repo "$GITHUB_REPOSITORY" -y
                 if [ $? -eq 0 ]; then
                   echo "Successfully deleted '$ASSET_NAME'."
