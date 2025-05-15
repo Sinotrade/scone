@@ -351,7 +351,7 @@ jobs:
         run: |
           FINAL_RELEASE_NAME=""
           MARK_AS_PRERELEASE=false
-          CANONICAL_TAG_FOR_RELEASE_OUTPUT=""
+          CANONICAL_TAG_FOR_RELEASE=""
 
           CR_IS_STAGING_SHELL="${{ env.CR_IS_STAGING }}"
           CR_DISPLAY_VERSION_SHELL="${{ env.CR_DISPLAY_VERSION }}"
@@ -363,29 +363,55 @@ jobs:
 
           if [[ "$CR_IS_STAGING_SHELL" == "true" ]]; then
             MARK_AS_PRERELEASE=true
-            VERSION_AFTER_STAGING_PREFIX="${CR_DISPLAY_VERSION_SHELL#staging-}"
-            BASE_VERSION_FOR_TITLE_AND_TAG=$(echo "$VERSION_AFTER_STAGING_PREFIX" | cut -d'-' -f1)
+            VERSION_PART_AFTER_STAGING_PREFIX="${CR_DISPLAY_VERSION_SHELL#staging-}"
+            BASE_VERSION_FOR_TITLE=$(echo "$VERSION_PART_AFTER_STAGING_PREFIX" | cut -d'-' -f1)
 
-            if [[ -z "$BASE_VERSION_FOR_TITLE_AND_TAG" ]]; then
-              echo "::error ::Could not determine base version for staging title/tag from CR_DISPLAY_VERSION_SHELL: ${CR_DISPLAY_VERSION_SHELL}"
+            if [[ -z "$BASE_VERSION_FOR_TITLE" ]]; then
+              echo "::error ::Could not determine base version for staging from CR_DISPLAY_VERSION_SHELL: ${CR_DISPLAY_VERSION_SHELL}"
               exit 1
             fi
 
-            FINAL_RELEASE_NAME="Desktop-Test $BASE_VERSION_FOR_TITLE_AND_TAG"
-            CANONICAL_TAG_FOR_RELEASE_OUTPUT="desktop-staging-v${BASE_VERSION_FOR_TITLE_AND_TAG}"
+            FINAL_RELEASE_NAME="Desktop-Test $BASE_VERSION_FOR_TITLE"
+            CANONICAL_TAG_FOR_RELEASE="desktop-staging-v${BASE_VERSION_FOR_TITLE}"
           else
+            # Production build
             MARK_AS_PRERELEASE=false # Explicitly false for production
             FINAL_RELEASE_NAME="Desktop $CR_DISPLAY_VERSION_SHELL"
-            CANONICAL_TAG_FOR_RELEASE_OUTPUT="$CR_FULL_TAG_SHELL"
+            CANONICAL_TAG_FOR_RELEASE="$CR_FULL_TAG_SHELL"
           fi
 
           echo "Final Release Name: $FINAL_RELEASE_NAME"
           echo "Is Prerelease: $MARK_AS_PRERELEASE"
-          echo "Canonical Tag for Release: $CANONICAL_TAG_FOR_RELEASE_OUTPUT"
+          echo "Canonical Tag for Release: $CANONICAL_TAG_FOR_RELEASE"
 
           echo "release_name_output=${FINAL_RELEASE_NAME}" >> $GITHUB_OUTPUT
           echo "prerelease_output=${MARK_AS_PRERELEASE}" >> $GITHUB_OUTPUT
-          echo "canonical_tag_output=${CANONICAL_TAG_FOR_RELEASE_OUTPUT}" >> $GITHUB_OUTPUT
+          echo "canonical_tag_output=${CANONICAL_TAG_FOR_RELEASE}" >> $GITHUB_OUTPUT
+
+      - name: Checkout Yvictor/scone for changelog generation
+        uses: actions/checkout@v4
+        with:
+          repository: "Yvictor/scone"
+          token: ${{ secrets.SCONE_GITHUB_TOKEN }}
+          fetch-depth: 0
+          ref: ${{ env.CR_IS_STAGING == 'true' && 'staging' || steps.release_info.outputs.canonical_tag_output }}
+          path: 'changelog_repo'
+
+      - name: Setup Node.js for changelog
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+
+      - name: Install and Generate Changelog from Yvictor/scone history
+        working-directory: changelog_repo
+        run: |
+          npm install -g conventional-changelog-cli
+          echo "Attempting to generate changelog from Yvictor/scone (path: $(pwd)) for ref being processed by conventional-changelog (typically latest tags)"
+          conventional-changelog -p conventionalcommits -r 1 --commit-path . > ../RELEASE_NOTES_DESKTOP.md || echo "Changelog generation for specified ref might have issues or be empty."
+
+          echo "--- Generated Desktop Release Notes (from Yvictor/scone history) ---"
+          cat ../RELEASE_NOTES_DESKTOP.md
+          echo "--------------------------------------------------------------------"
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
@@ -400,41 +426,8 @@ jobs:
           ls -l artifacts/macos-build/
           echo "--- Windows Build (expected in artifacts/windows-build/): ---"
           ls -l artifacts/windows-build/
-
-      - name: Checkout Yvictor/scone for changelog generation
-        uses: actions/checkout@v4
-        with:
-          repository: "Yvictor/scone"
-          token: ${{ secrets.SCONE_GITHUB_TOKEN }}
-          fetch-depth: 0
-          ref: ${{ env.CR_IS_STAGING == 'true' && env.CR_FULL_TAG || env.CR_FULL_TAG }}
-          path: 'changelog_repo'
-
-      - name: Setup Node.js for changelog
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20.x'
-
-      - name: Install and Generate Changelog from Yvictor/scone history
-        working-directory: changelog_repo
-        run: |
-          npm install -g conventional-changelog-cli
-          TARGET_REF_INFO="${{ env.CR_FULL_TAG }}" # Changelog is generated up to this specific pushed tag/commit
-          echo "Attempting to generate changelog from Yvictor/scone (path: $(pwd)) for ref: $TARGET_REF_INFO"
-          conventional-changelog -p conventionalcommits -r 1 --commit-path . > ../RELEASE_NOTES_DESKTOP.md || echo "Changelog generation for $TARGET_REF_INFO might have issues or be empty."
-          echo "--- Generated Desktop Release Notes (from Yvictor/scone history) ---"
-          cat ../RELEASE_NOTES_DESKTOP.md
-          echo "--------------------------------------------------------------------"
-
-      - name: Verify Release Notes File
-        run: |
-          echo "--- Checking Release Notes file in workspace root: ---"
+          echo "--- Release Notes file in workspace root: ---"
           ls -l ${{ github.workspace }}/RELEASE_NOTES_DESKTOP.md
-          if [ ! -f "${{ github.workspace }}/RELEASE_NOTES_DESKTOP.md" ]; then
-            echo "::warning ::RELEASE_NOTES_DESKTOP.md not found. Release body will be empty."
-            # Optionally create an empty file to prevent softprops/action-gh-release from failing if body_path is required and file missing
-            # touch ${{ github.workspace }}/RELEASE_NOTES_DESKTOP.md
-          fi
 
       - name: Create/Update GitHub Release on Sinotrade/scone
         uses: softprops/action-gh-release@v2
