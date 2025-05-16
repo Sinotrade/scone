@@ -137,7 +137,7 @@ jobs:
           repository: "Yvictor/scone"
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
           fetch-depth: 0
-          ref: 'master'
+          ref: ${{ env.CR_DISPLAY_VERSION_MOBILE }}
           path: 'changelog_repo'
 
       - name: Download mobile OTA bundle artifact
@@ -158,7 +158,7 @@ jobs:
         id: mobile_changelog
         working-directory: changelog_repo
         run: |
-          echo "Attempting to generate changelog from Yvictor/scone (path: $(pwd)) for ref: ${{ env.CR_FULL_TAG_MOBILE }}"
+          echo "Attempting to generate changelog from Yvictor/scone (path: $(pwd)) for ref: ${{ env.CR_DISPLAY_VERSION_MOBILE }}"
           conventional-changelog -p conventionalcommits -r 1 --commit-path . > ../RELEASE_NOTES_MOBILE.md || echo "Changelog generation for specified ref might have issues or be empty."
 
           echo "--- Generated Mobile Release Notes (from Yvictor/scone history) ---"
