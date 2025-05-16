@@ -398,21 +398,57 @@ jobs:
           ref: ${{ env.CR_IS_STAGING == 'true' && 'staging' || env.CR_DISPLAY_VERSION }}
           path: 'changelog_repo'
 
-      - name: Setup Node.js for changelog
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20.x'
-
-      - name: Install and Generate Changelog from Yvictor/scone history
-        working-directory: changelog_repo
+      - name: Install latest git-cliff
         run: |
-          npm install -g conventional-changelog-cli
-          echo "Attempting to generate changelog from Yvictor/scone (path: $(pwd)) for ref being processed by conventional-changelog (typically latest tags)"
-          conventional-changelog -p conventionalcommits -r 1 --commit-path . > ../RELEASE_NOTES_DESKTOP.md || echo "Changelog generation for specified ref might have issues or be empty."
+          echo "Installing latest stable git-cliff..."
+          cargo install git-cliff
+          echo "Verifying git-cliff installation..."
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          git-cliff --version
+        shell: bash
 
-          echo "--- Generated Desktop Release Notes (from Yvictor/scone history) ---"
+      - name: Generate Changelog from Yvictor/scone history using git-cliff
+        working-directory: ./changelog_repo
+        env:
+          IS_STAGING_BUILD: ${{ env.CR_IS_STAGING }}
+          DISPLAY_VERSION_FOR_LOG: ${{ env.CR_DISPLAY_VERSION }}
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "IS_STAGING_BUILD: ${IS_STAGING_BUILD}"
+          echo "DISPLAY_VERSION_FOR_LOG: ${DISPLAY_VERSION_FOR_LOG}"
+
+          > ../RELEASE_NOTES_DESKTOP.md
+
+          CLIFF_COMMAND=""
+          GENERATION_TYPE_MESSAGE=""
+
+          if [[ "${IS_STAGING_BUILD}" == "true" ]]; then
+            GENERATION_TYPE_MESSAGE="Generating changelog for STAGING: from latest tag to HEAD of 'staging' branch in Yvictor/scone."
+            # 對於測試版 (staging 分支，沒有新 tag):
+            CLIFF_COMMAND="git cliff --unreleased -o ../RELEASE_NOTES_DESKTOP.md"
+          else
+            GENERATION_TYPE_MESSAGE="Generating changelog for PRODUCTION: for tag '${DISPLAY_VERSION_FOR_LOG}' in Yvictor/scone."
+            # 對於正式版 (已 checkout 到特定 tag):
+            CLIFF_COMMAND="git cliff --current -o ../RELEASE_NOTES_DESKTOP.md"
+          fi
+
+          echo "${GENERATION_TYPE_MESSAGE}"
+          echo "Executing command: ${CLIFF_COMMAND}"
+
+          if ! ${CLIFF_COMMAND}; then
+            echo "::warning ::git-cliff command failed. A default message will be used in RELEASE_NOTES_DESKTOP.md."
+            echo "Changelog generation using git-cliff failed for this release." > ../RELEASE_NOTES_DESKTOP.md
+          fi
+
+          if [ ! -s ../RELEASE_NOTES_DESKTOP.md ]; then
+            echo "::warning ::Generated changelog (../RELEASE_NOTES_DESKTOP.md) is empty. Providing a default message."
+            echo "No specific changelog details could be generated for this release." > ../RELEASE_NOTES_DESKTOP.md
+          fi
+
+          echo "--- Generated Desktop Release Notes (from Yvictor/scone history using git-cliff) ---"
           cat ../RELEASE_NOTES_DESKTOP.md
-          echo "--------------------------------------------------------------------"
+          echo "-----------------------------------------------------------------------------------"
+        shell: bash
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
