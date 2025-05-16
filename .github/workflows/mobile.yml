@@ -137,7 +137,7 @@ jobs:
           repository: "Yvictor/scone"
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
           fetch-depth: 0
-          ref: ${{ env.CR_DISPLAY_VERSION_MOBILE }}
+          ref: 'master'
           path: 'changelog_repo'
 
       - name: Download mobile OTA bundle artifact
@@ -177,7 +177,7 @@ jobs:
       - name: Create GitHub Release (Mobile)
         uses: softprops/action-gh-release@v2
         with:
-          token: ${{ secrets.SCONE_GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ env.CR_FULL_TAG_MOBILE }}
           name: "Mobile ${{ env.CR_DISPLAY_VERSION_MOBILE }}"
           body_path: RELEASE_NOTES_MOBILE.md
