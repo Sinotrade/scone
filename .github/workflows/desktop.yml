@@ -373,7 +373,7 @@ jobs:
             fi
 
             FINAL_RELEASE_NAME="Desktop-Test $BASE_VERSION_FOR_TITLE"
-            CANONICAL_TAG_FOR_RELEASE="desktop-staging-v${BASE_VERSION_FOR_TITLE}"
+            CANONICAL_TAG_FOR_RELEASE="desktop-staging-${BASE_VERSION_FOR_TITLE}"
           else
             # 正式版
             MARK_AS_PRERELEASE=false # Explicitly false for production
@@ -395,7 +395,7 @@ jobs:
           repository: "Yvictor/scone"
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
           fetch-depth: 0
-          ref: ${{ env.CR_IS_STAGING == 'true' && 'staging' || env.CR_DISPLAY_VERSION }}
+          ref: ${{ env.CR_IS_STAGING == 'true' && 'staging' || 'master' }}
           path: 'changelog_repo'
 
       - name: Setup Node.js for changelog
