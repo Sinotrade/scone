@@ -66,6 +66,9 @@ jobs:
       - name: Install Dependencies using pnpm
         run: pnpm install --frozen-lockfile
 
+      - name: Run Repair Script for solclientjs types
+        run: pnpm repair
+
       - name: Create .env file for vite build
         run: |
           echo "${{ secrets.ENV_FILE }}" > .env
