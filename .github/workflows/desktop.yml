@@ -151,17 +151,7 @@ jobs:
           rustup target add aarch64-apple-darwin
 
       - name: Build macOS Universal App
-        run: |
-          # 加入超時防止卡住，並提供重試機制
-          timeout 30m pnpm build:mac || {
-            echo "::warning ::建置超時或失敗，重試一次..."
-            # 重新解鎖 keychain
-            security lock-keychain build.keychain || true
-            security unlock-keychain -p "temp_ci_keychain_pwd" build.keychain
-            security show-keychain-info build.keychain
-            # 重試建置
-            timeout 30m pnpm build:mac
-          }
+        run: pnpm build:mac
         env:
           # 如果是 staging build，VITE_ENV 為 staging，否則為 production
           VITE_ENV: ${{ env.D_IS_STAGING_BUILD_ENV == 'true' && 'staging' || 'production' }}
