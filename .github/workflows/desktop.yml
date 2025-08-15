@@ -117,8 +117,17 @@ jobs:
           security create-keychain -p "${{ env.KEYCHAIN_TEMP_PASSWORD }}" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "${{ env.KEYCHAIN_TEMP_PASSWORD }}" build.keychain
-          security import certificate.p12 -k build.keychain -P "${{ env.MACOS_CERT_PWD_FROM_SECRET }}" -T /usr/bin/codesign
+          
+          # 設定 keychain 超時為 6 小時，防止自動鎖定
+          security set-keychain-settings -t 21600 -l build.keychain
+          
+          # 匯入憑證時同時授權 codesign 和 security 工具
+          security import certificate.p12 -k build.keychain -P "${{ env.MACOS_CERT_PWD_FROM_SECRET }}" -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${{ env.KEYCHAIN_TEMP_PASSWORD }}" build.keychain
+          
+          # 驗證 keychain 已解鎖
+          security show-keychain-info build.keychain
+          
           rm certificate.p12
 
           echo "Verifying certificate and extracting signing identity..."
@@ -142,10 +151,22 @@ jobs:
           rustup target add aarch64-apple-darwin
 
       - name: Build macOS Universal App
-        run: pnpm build:mac
+        run: |
+          # 加入超時防止卡住，並提供重試機制
+          timeout 30m pnpm build:mac || {
+            echo "::warning ::建置超時或失敗，重試一次..."
+            # 重新解鎖 keychain
+            security lock-keychain build.keychain || true
+            security unlock-keychain -p "temp_ci_keychain_pwd" build.keychain
+            security show-keychain-info build.keychain
+            # 重試建置
+            timeout 30m pnpm build:mac
+          }
         env:
           # 如果是 staging build，VITE_ENV 為 staging，否則為 production
           VITE_ENV: ${{ env.D_IS_STAGING_BUILD_ENV == 'true' && 'staging' || 'production' }}
+          # 停用並行簽署以避免競爭條件
+          TAURI_APPLE_SIGNING_PARALLEL: "false"
           APPLE_SIGNING_IDENTITY: ${{ steps.import_and_set_identity.outputs.apple_signing_identity_output }}
           APPLE_ID: ${{ env.APPLE_ID_SECRET }}
           APPLE_PASSWORD: ${{ env.APPLE_PASSWORD_SECRET }}
