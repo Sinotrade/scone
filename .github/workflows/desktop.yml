@@ -161,6 +161,8 @@ jobs:
           APPLE_ID: ${{ env.APPLE_ID_SECRET }}
           APPLE_PASSWORD: ${{ env.APPLE_PASSWORD_SECRET }}
           APPLE_TEAM_ID: ${{ env.APPLE_TEAM_ID_SECRET }}
+          # 新增：Tauri 更新簽名
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
       - name: Package macOS Artifacts
         id: package_macos # MODIFIED: Added id for output referencing
@@ -213,6 +215,7 @@ jobs:
           name: macos-build
           path: |
             ${{ steps.package_macos.outputs.dmg_name_output }}
+            ${{ steps.package_macos.outputs.dmg_name_output }}.sig
 
   Build-windows:
     name: Build Windows App (x64)
@@ -311,6 +314,8 @@ jobs:
         run: pnpm build:windows
         env:
           VITE_ENV: ${{ env.D_IS_STAGING_BUILD_ENV == 'True' && 'staging' || 'production' }}
+          # 新增：Tauri 更新簽名
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
       - name: Locate Windows Artifact
         id: locate_msi
@@ -350,7 +355,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: ${{ steps.locate_msi.outputs.msi_name }}
+          path: |
+            ${{ steps.locate_msi.outputs.msi_name }}
+            ${{ steps.locate_msi.outputs.msi_name }}.sig
 
   create-release:
     name: Create GitHub Release
@@ -483,6 +490,46 @@ jobs:
           echo "--- Release Notes file in workspace root: ---"
           ls -l ${{ github.workspace }}/RELEASE_NOTES_DESKTOP.md
 
+      - name: Generate Update Manifest
+        run: |
+          # Get artifact file names
+          MACOS_DMG=$(ls artifacts/macos-build/*.dmg | head -n 1)
+          MACOS_SIG=$(ls artifacts/macos-build/*.dmg.sig | head -n 1)
+          WINDOWS_MSI=$(ls artifacts/windows-build/*.msi | head -n 1)
+          WINDOWS_SIG=$(ls artifacts/windows-build/*.msi.sig | head -n 1)
+          
+          # Read signature contents
+          MACOS_SIGNATURE=$(cat "$MACOS_SIG" | tr -d '\n\r')
+          WINDOWS_SIGNATURE=$(cat "$WINDOWS_SIG" | tr -d '\n\r')
+          
+          # Create update manifest
+          cat > update-manifest.json << EOF
+          {
+            "version": "${{ env.CR_DISPLAY_VERSION }}",
+            "notes": "檢查 Release Notes 了解詳細更新內容",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "darwin-universal": {
+                "signature": "$MACOS_SIGNATURE",
+                "url": "https://github.com/Sinotrade/scone/releases/download/${{ steps.release_info.outputs.canonical_tag_output }}/$(basename "$MACOS_DMG")"
+              },
+              "windows-x86_64": {
+                "signature": "$WINDOWS_SIGNATURE",
+                "url": "https://github.com/Sinotrade/scone/releases/download/${{ steps.release_info.outputs.canonical_tag_output }}/$(basename "$WINDOWS_MSI")"
+              }
+            }
+          }
+          EOF
+          
+          echo "Generated update manifest:"
+          cat update-manifest.json
+
+      - name: Upload Update Manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-manifest
+          path: update-manifest.json
+
       - name: Clean up old DMG/MSI assets from Staging Release
         if: steps.release_info.outputs.prerelease_output == 'true' # Only run for staging/prerelease
         env:
@@ -533,3 +580,4 @@ jobs:
           files: |
             artifacts/macos-build/*
             artifacts/windows-build/*
+            update-manifest.json
