@@ -117,17 +117,17 @@ jobs:
           security create-keychain -p "${{ env.KEYCHAIN_TEMP_PASSWORD }}" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "${{ env.KEYCHAIN_TEMP_PASSWORD }}" build.keychain
-          
+
           # 設定 keychain 超時為 6 小時，防止自動鎖定
           security set-keychain-settings -t 21600 -l build.keychain
-          
+
           # 匯入憑證時同時授權 codesign 和 security 工具
           security import certificate.p12 -k build.keychain -P "${{ env.MACOS_CERT_PWD_FROM_SECRET }}" -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${{ env.KEYCHAIN_TEMP_PASSWORD }}" build.keychain
-          
+
           # 驗證 keychain 已解鎖
           security show-keychain-info build.keychain
-          
+
           rm certificate.p12
 
           echo "Verifying certificate and extracting signing identity..."
@@ -182,32 +182,57 @@ jobs:
           echo "DEBUG: Listing contents of src-tauri/target/universal-apple-darwin/release/bundle/dmg/"
           ls -l "src-tauri/target/universal-apple-darwin/release/bundle/dmg/"
 
+          # Find DMG file
           DMG_FILE_PATTERN="src-tauri/target/universal-apple-darwin/release/bundle/dmg/${SANITIZED_APP_NAME}_*universal.dmg"
-          DMG_FILE_FOUND=$(ls $DMG_FILE_PATTERN 2>/dev/null | head -n 1) # Added 2>/dev/null to suppress ls error if no match
+          DMG_FILE_FOUND=$(ls $DMG_FILE_PATTERN 2>/dev/null | head -n 1)
 
+          # Find Tauri-generated updater files
+          UPDATER_ARCHIVE_PATTERN="src-tauri/target/universal-apple-darwin/release/bundle/macos/${SANITIZED_APP_NAME}.app.tar.gz"
+          UPDATER_SIG_PATTERN="src-tauri/target/universal-apple-darwin/release/bundle/macos/${SANITIZED_APP_NAME}.app.tar.gz.sig"
+
+          UPDATER_ARCHIVE_FOUND=$(ls "$UPDATER_ARCHIVE_PATTERN" 2>/dev/null | head -n 1)
+          UPDATER_SIG_FOUND=$(ls "$UPDATER_SIG_PATTERN" 2>/dev/null | head -n 1)
+
+          # Validation checks
           if [ -z "$DMG_FILE_FOUND" ]; then
             echo "::error ::DMG file matching pattern '$DMG_FILE_PATTERN' not found."
             exit 1
           fi
-          if [ ! -d "$APP_DIR_PATH" ]; then # Check app directory specifically
+          if [ ! -d "$APP_DIR_PATH" ]; then
             echo "::error ::App directory '$APP_DIR_PATH' not found."
             exit 1
           fi
+          if [ -z "$UPDATER_ARCHIVE_FOUND" ]; then
+            echo "::error ::Tauri updater archive not found at: $UPDATER_ARCHIVE_PATTERN"
+            exit 1
+          fi
+          if [ -z "$UPDATER_SIG_FOUND" ]; then
+            echo "::error ::Tauri updater signature not found at: $UPDATER_SIG_PATTERN"
+            exit 1
+          fi
 
-          APP_ARCHIVE_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.app.tar.gz"
+          # Define final file names
           FINAL_DMG_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.dmg"
+          FINAL_UPDATER_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.app.tar.gz"
+          FINAL_UPDATER_SIG_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.app.tar.gz.sig"
 
-          echo "Archiving $APP_DIR_PATH to $APP_ARCHIVE_BASENAME"
-          tar czf "$APP_ARCHIVE_BASENAME" -C "$(dirname "$APP_DIR_PATH")" "$(basename "$APP_DIR_PATH")"
-
+          # Move files to workspace
           echo "Moving $DMG_FILE_FOUND to $FINAL_DMG_BASENAME"
           mv "$DMG_FILE_FOUND" "$FINAL_DMG_BASENAME"
+
+          echo "Moving $UPDATER_ARCHIVE_FOUND to $FINAL_UPDATER_BASENAME"
+          mv "$UPDATER_ARCHIVE_FOUND" "$FINAL_UPDATER_BASENAME"
+
+          echo "Moving $UPDATER_SIG_FOUND to $FINAL_UPDATER_SIG_BASENAME"
+          mv "$UPDATER_SIG_FOUND" "$FINAL_UPDATER_SIG_BASENAME"
 
           echo "DEBUG: Workspace files after packaging:"
           ls -l
 
-          echo "app_archive_output=${APP_ARCHIVE_BASENAME}" >> $GITHUB_OUTPUT
+          # Output variables for next steps
           echo "dmg_name_output=${FINAL_DMG_BASENAME}" >> $GITHUB_OUTPUT
+          echo "updater_archive_output=${FINAL_UPDATER_BASENAME}" >> $GITHUB_OUTPUT
+          echo "updater_sig_output=${FINAL_UPDATER_SIG_BASENAME}" >> $GITHUB_OUTPUT
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
@@ -215,7 +240,8 @@ jobs:
           name: macos-build
           path: |
             ${{ steps.package_macos.outputs.dmg_name_output }}
-            ${{ steps.package_macos.outputs.dmg_name_output }}.sig
+            ${{ steps.package_macos.outputs.updater_archive_output }}
+            ${{ steps.package_macos.outputs.updater_sig_output }}
 
   Build-windows:
     name: Build Windows App (x64)
@@ -340,11 +366,27 @@ jobs:
           if (-not $msiPath) { Write-Error "MSI file not found with pattern: $msiSearchPattern."; exit 1 }
 
           $msiName = "${sanitizedAppName}_${{ env.D_DISPLAY_VERSION_ENV }}_x64.msi"
+          $originalSigPath = "$msiPath.sig"
+          $targetSigName = "$msiName.sig"
+
           Write-Host "Original MSI Path: $msiPath"
           Write-Host "Target MSI Name for upload: $msiName"
+          Write-Host "Original Signature Path: $originalSigPath"
+          Write-Host "Target Signature Name: $targetSigName"
 
+          # Copy MSI file
           Copy-Item -Path $msiPath -Destination $msiName -Force
           if (-not (Test-Path $msiName)) { Write-Error "Failed to copy MSI to $msiName"; exit 1}
+
+          # Copy signature file
+          if (-not (Test-Path $originalSigPath)) { Write-Error "Signature file not found: $originalSigPath"; exit 1}
+          Copy-Item -Path $originalSigPath -Destination $targetSigName -Force
+          if (-not (Test-Path $targetSigName)) { Write-Error "Failed to copy signature to $targetSigName"; exit 1}
+
+          # Verify signature content is not empty
+          $sigContent = Get-Content -Raw $targetSigName
+          if ([string]::IsNullOrWhiteSpace($sigContent)) { Write-Error "Signature file is empty: $targetSigName"; exit 1}
+          Write-Host "DEBUG: Signature file size: $((Get-Item $targetSigName).Length) bytes"
 
           Write-Host "DEBUG: Workspace files after packaging:"
           Get-ChildItem . | Select-Object Name, Length
@@ -492,17 +534,71 @@ jobs:
 
       - name: Generate Update Manifest
         run: |
-          # Get artifact file names
-          MACOS_DMG=$(ls artifacts/macos-build/*.dmg | head -n 1)
-          MACOS_SIG=$(ls artifacts/macos-build/*.dmg.sig | head -n 1)
+          # Debug: List all artifact files
+          echo "DEBUG: Listing macOS build artifacts:"
+          ls -la artifacts/macos-build/
+          echo "DEBUG: Listing Windows build artifacts:"
+          ls -la artifacts/windows-build/
+
+          # Get artifact file names - CORRECTED PATHS
+          MACOS_UPDATER=$(ls artifacts/macos-build/*.tar.gz | grep -v "\.sig" | head -n 1)
+          MACOS_SIG=$(ls artifacts/macos-build/*.tar.gz.sig | head -n 1)
           WINDOWS_MSI=$(ls artifacts/windows-build/*.msi | head -n 1)
           WINDOWS_SIG=$(ls artifacts/windows-build/*.msi.sig | head -n 1)
-          
-          # Read signature contents
+
+          # Validation checks
+          if [ -z "$MACOS_UPDATER" ]; then
+            echo "::error ::macOS updater archive not found in artifacts/macos-build/"
+            exit 1
+          fi
+          if [ -z "$MACOS_SIG" ]; then
+            echo "::error ::macOS signature file not found in artifacts/macos-build/"
+            exit 1
+          fi
+          if [ -z "$WINDOWS_MSI" ]; then
+            echo "::error ::Windows MSI file not found in artifacts/windows-build/"
+            exit 1
+          fi
+          if [ -z "$WINDOWS_SIG" ]; then
+            echo "::error ::Windows signature file not found in artifacts/windows-build/"
+            exit 1
+          fi
+
+          # Debug: Show found files
+          echo "DEBUG: Found files:"
+          echo "  macOS Updater: $MACOS_UPDATER"
+          echo "  macOS Signature: $MACOS_SIG"
+          echo "  Windows MSI: $WINDOWS_MSI"
+          echo "  Windows Signature: $WINDOWS_SIG"
+
+          # Read signature contents with validation
+          if [ ! -f "$MACOS_SIG" ]; then
+            echo "::error ::macOS signature file does not exist: $MACOS_SIG"
+            exit 1
+          fi
+          if [ ! -f "$WINDOWS_SIG" ]; then
+            echo "::error ::Windows signature file does not exist: $WINDOWS_SIG"
+            exit 1
+          fi
+
           MACOS_SIGNATURE=$(cat "$MACOS_SIG" | tr -d '\n\r')
           WINDOWS_SIGNATURE=$(cat "$WINDOWS_SIG" | tr -d '\n\r')
-          
-          # Create update manifest
+
+          # Validate signatures are not empty
+          if [ -z "$MACOS_SIGNATURE" ]; then
+            echo "::error ::macOS signature is empty"
+            exit 1
+          fi
+          if [ -z "$WINDOWS_SIGNATURE" ]; then
+            echo "::error ::Windows signature is empty"
+            exit 1
+          fi
+
+          echo "DEBUG: Signature lengths:"
+          echo "  macOS: ${#MACOS_SIGNATURE} characters"
+          echo "  Windows: ${#WINDOWS_SIGNATURE} characters"
+
+          # Create update manifest - NOTE: URLs point to updater files, not installers
           cat > update-manifest.json << EOF
           {
             "version": "${{ env.CR_DISPLAY_VERSION }}",
@@ -511,7 +607,7 @@ jobs:
             "platforms": {
               "darwin-universal": {
                 "signature": "$MACOS_SIGNATURE",
-                "url": "https://github.com/Sinotrade/scone/releases/download/${{ steps.release_info.outputs.canonical_tag_output }}/$(basename "$MACOS_DMG")"
+                "url": "https://github.com/Sinotrade/scone/releases/download/${{ steps.release_info.outputs.canonical_tag_output }}/$(basename "$MACOS_UPDATER")"
               },
               "windows-x86_64": {
                 "signature": "$WINDOWS_SIGNATURE",
@@ -520,7 +616,7 @@ jobs:
             }
           }
           EOF
-          
+
           echo "Generated update manifest:"
           cat update-manifest.json
 
