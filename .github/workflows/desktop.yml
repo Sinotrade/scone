@@ -677,3 +677,15 @@ jobs:
             artifacts/macos-build/*
             artifacts/windows-build/*
             update-manifest.json
+
+  trigger-web-deployment:
+    name: Trigger GitHub Pages Update
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Web Deployment with Manifests Update
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: update-manifests
+          client-payload: '{"triggered_by": "desktop-release", "tag": "${{ needs.Build-macos.outputs.full_tag_name }}", "is_staging": "${{ needs.Build-macos.outputs.is_staging_build }}"}'
