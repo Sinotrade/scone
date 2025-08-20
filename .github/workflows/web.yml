@@ -11,7 +11,7 @@ on:
 jobs:
   build:
     name: Build
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     environment: github-pages
     steps:
       - name: fetch repo source
@@ -19,7 +19,7 @@ jobs:
         with:
           repository: "Yvictor/scone"
           token: ${{ secrets.SCONE_GITHUB_TOKEN }}
-          ref: ${{ github.ref }}
+          ref: ${{ github.event.client_payload.is_staging == 'true' && 'staging' || 'master' }}
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
