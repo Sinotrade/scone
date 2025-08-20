@@ -11,7 +11,7 @@ on:
 jobs:
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     environment: github-pages
     steps:
       - name: fetch repo source
