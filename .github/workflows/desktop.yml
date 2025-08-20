@@ -680,7 +680,7 @@ jobs:
 
   trigger-web-deployment:
     name: Trigger GitHub Pages Update
-    needs: create-release
+    needs: [create-release, Build-macos]
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Web Deployment with Manifests Update
