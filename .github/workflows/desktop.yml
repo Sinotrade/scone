@@ -598,10 +598,36 @@ jobs:
           echo "  macOS: ${#MACOS_SIGNATURE} characters"
           echo "  Windows: ${#WINDOWS_SIGNATURE} characters"
 
+          # Generate semver-compatible version number
+          SEMVER_VERSION=""
+          if [[ "${{ env.CR_IS_STAGING }}" == "true" ]]; then
+            # Convert staging-0.5.9-ea4ed8a -> 0.5.9-staging.ea4ed8a
+            DISPLAY_VERSION="${{ env.CR_DISPLAY_VERSION }}"
+            echo "DEBUG: Original staging version: $DISPLAY_VERSION"
+            
+            # Extract base version (remove staging- prefix)
+            BASE_VERSION=$(echo "$DISPLAY_VERSION" | sed 's/^staging-//' | cut -d'-' -f1)
+            
+            # Extract commit hash (everything after the first dash following base version)
+            COMMIT_HASH=$(echo "$DISPLAY_VERSION" | sed 's/^staging-[0-9.]*//' | sed 's/^-//')
+            
+            # Create semver compatible version
+            if [ -n "$COMMIT_HASH" ]; then
+              SEMVER_VERSION="${BASE_VERSION}-staging.${COMMIT_HASH}"
+            else
+              SEMVER_VERSION="${BASE_VERSION}-staging"
+            fi
+          else
+            # For release versions, use as-is
+            SEMVER_VERSION="${{ env.CR_DISPLAY_VERSION }}"
+          fi
+          
+          echo "DEBUG: Generated semver version: $SEMVER_VERSION"
+
           # Create update manifest - NOTE: URLs point to updater files, not installers
           cat > update-manifest.json << EOF
           {
-            "version": "${{ env.CR_DISPLAY_VERSION }}",
+            "version": "$SEMVER_VERSION",
             "notes": "檢查 Release Notes 了解詳細更新內容",
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "platforms": {
