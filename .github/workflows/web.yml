@@ -5,6 +5,8 @@ on:
     branches:
       - master
   workflow_dispatch:
+  repository_dispatch:
+    types: [update-manifests]
 
 jobs:
   build:
@@ -36,6 +38,8 @@ jobs:
           echo "${{ secrets.ENV_FILE }}" > .env
       - name: Build production bundle
         run: pnpm build:pages
+      - name: Download Update Manifests
+        run: pnpm download-manifests
       - name: Upload production-ready build files
         uses: actions/upload-pages-artifact@v3
         with:
