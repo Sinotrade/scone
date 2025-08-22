@@ -187,7 +187,7 @@ jobs:
 
       - name: Build macOS Universal App
         run: |
-          if [[ "${{ env.D_IS_STAGING_BUILD_ENV }}" == "true" ]]; then
+          if [[ "${{ env.D_IS_STAGING_BUILD_ENV }}" == "true" || "${{ env.D_IS_STAGING_BUILD_ENV }}" == "True" ]]; then
             # Staging build: 跳過 sync-version 以保留我們的 staging 版本號
             pnpm tauri build --target universal-apple-darwin --verbose
           else
@@ -424,7 +424,7 @@ jobs:
       - name: Build Windows App
         shell: bash
         run: |
-          if [[ "${{ env.D_IS_STAGING_BUILD_ENV }}" == "True" ]]; then
+          if [[ "${{ env.D_IS_STAGING_BUILD_ENV }}" == "true" || "${{ env.D_IS_STAGING_BUILD_ENV }}" == "True" ]]; then
             # Staging build: 跳過 sync-version 以保留我們的 staging 版本號
             pnpm tauri build --target x86_64-pc-windows-msvc
           else
