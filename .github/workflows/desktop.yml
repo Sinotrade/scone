@@ -154,7 +154,7 @@ jobs:
         if: ${{ env.D_IS_STAGING_BUILD_ENV == 'true' }}
         run: |
           # 從環境變數取得 display version (格式: staging-0.5.9-commit_sha)
-          DISPLAY_VERSION="${{ env.D_DISPLAY_VERSION }}"
+          DISPLAY_VERSION="${{ env.D_DISPLAY_VERSION_ENV }}"
           echo "DEBUG: Original DISPLAY_VERSION: $DISPLAY_VERSION"
           
           # 提取基礎版本號和 commit hash
@@ -383,7 +383,7 @@ jobs:
         shell: pwsh
         run: |
           # 從環境變數取得 display version (格式: staging-0.5.9-commit_sha)
-          $DISPLAY_VERSION = "${{ env.D_DISPLAY_VERSION }}"
+          $DISPLAY_VERSION = "${{ env.D_DISPLAY_VERSION_ENV }}"
           Write-Host "DEBUG: Original DISPLAY_VERSION: $DISPLAY_VERSION"
           
           # 提取基礎版本號和 commit hash
