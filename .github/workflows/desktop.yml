@@ -172,16 +172,12 @@ jobs:
           
           echo "DEBUG: BASE_VERSION: $BASE_VERSION, COMMIT_HASH: $COMMIT_HASH"
           
-          # 生成 semver 版本號，使用 run_number 確保遞增且符合 MSI 限制
-          # run_number 是 GitHub Actions 的內建變數，每次執行會遞增
+          # 生成簡化的 semver 版本號，符合 MSI 限制
+          # 格式: 0.5.9-123 (只用 run_number，確保能被正式版 0.5.9 更新)
           RUN_NUMBER=${{ github.run_number }}
-          if [ -n "$COMMIT_HASH" ]; then
-            SHORT_SHA=$(echo "$COMMIT_HASH" | cut -c1-7)
-            # 格式: 0.5.9-staging.123 (run_number) 或 0.5.9-staging.123.abc1234 (帶 commit)
-            STAGING_VERSION="${BASE_VERSION}-staging.${RUN_NUMBER}.${SHORT_SHA}"
-          else
-            STAGING_VERSION="${BASE_VERSION}-staging.${RUN_NUMBER}"
-          fi
+          STAGING_VERSION="${BASE_VERSION}-${RUN_NUMBER}"
+          
+          echo "DEBUG: Generated staging version: $STAGING_VERSION"
           
           # 更新 Cargo.toml 版本號
           sed -i '' "s/^version = .*/version = \"$STAGING_VERSION\"/" src-tauri/Cargo.toml
@@ -407,16 +403,12 @@ jobs:
           
           Write-Host "DEBUG: BASE_VERSION: $BASE_VERSION, COMMIT_PART: $COMMIT_PART"
           
-          # 生成 semver 版本號，使用 run_number 確保遞增且符合 MSI 限制
-          # run_number 是 GitHub Actions 的內建變數，每次執行會遞增
+          # 生成簡化的 semver 版本號，符合 MSI 限制
+          # 格式: 0.5.9-123 (只用 run_number，確保能被正式版 0.5.9 更新)
           $RUN_NUMBER = "${{ github.run_number }}"
-          if ($COMMIT_PART) {
-            $SHORT_SHA = $COMMIT_PART.Substring(0, [Math]::Min(7, $COMMIT_PART.Length))
-            # 格式: 0.5.9-staging.123 (run_number) 或 0.5.9-staging.123.abc1234 (帶 commit)
-            $STAGING_VERSION = "$BASE_VERSION-staging.$RUN_NUMBER.$SHORT_SHA"
-          } else {
-            $STAGING_VERSION = "$BASE_VERSION-staging.$RUN_NUMBER"
-          }
+          $STAGING_VERSION = "$BASE_VERSION-$RUN_NUMBER"
+          
+          Write-Host "DEBUG: Generated staging version: $STAGING_VERSION"
           
           # 更新 Cargo.toml 版本號（只更新 package version，不影響 rust-version）
           $cargoContent = Get-Content "src-tauri\Cargo.toml" -Raw
@@ -708,15 +700,10 @@ jobs:
             # Extract commit hash (everything after the first dash following base version)
             COMMIT_HASH=$(echo "$DISPLAY_VERSION" | sed 's/^staging-[0-9.]*//' | sed 's/^-//')
             
-            # Create semver compatible version with run_number for proper version ordering
-            # Format: 0.5.9-staging.123.sha (ensures newer builds always have higher version)
+            # Create simplified semver version for staging
+            # Format: 0.5.9-123 (ensures proper update from staging to release)
             RUN_NUMBER=${{ github.run_number }}
-            if [ -n "$COMMIT_HASH" ]; then
-              SHORT_SHA=$(echo "$COMMIT_HASH" | cut -c1-7)
-              SEMVER_VERSION="${BASE_VERSION}-staging.${RUN_NUMBER}.${SHORT_SHA}"
-            else
-              SEMVER_VERSION="${BASE_VERSION}-staging.${RUN_NUMBER}"
-            fi
+            SEMVER_VERSION="${BASE_VERSION}-${RUN_NUMBER}"
           else
             # For release versions, use as-is
             SEMVER_VERSION="${{ env.CR_DISPLAY_VERSION }}"
