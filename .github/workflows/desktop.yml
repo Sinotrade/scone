@@ -172,7 +172,14 @@ jobs:
           echo "Updated Cargo.toml version to: $STAGING_VERSION"
 
       - name: Build macOS Universal App
-        run: pnpm build:mac
+        run: |
+          if [[ "${{ env.D_IS_STAGING_BUILD_ENV }}" == "true" ]]; then
+            # Staging build: 跳過 sync-version 以保留我們的 staging 版本號
+            tauri build --target universal-apple-darwin --verbose
+          else
+            # Release build: 正常執行包含 sync-version 的命令
+            pnpm build:mac
+          fi
         env:
           # 如果是 staging build，VITE_ENV 為 staging，否則為 production
           VITE_ENV: ${{ env.D_IS_STAGING_BUILD_ENV == 'true' && 'staging' || 'production' }}
@@ -375,14 +382,23 @@ jobs:
             $STAGING_VERSION = "$BASE_VERSION-staging.$TIMESTAMP"
           }
           
-          # 更新 Cargo.toml 版本號
+          # 更新 Cargo.toml 版本號（只更新 package version，不影響 rust-version）
           $cargoContent = Get-Content "src-tauri\Cargo.toml" -Raw
-          $cargoContent = $cargoContent -replace 'version = "[^"]*"', "version = `"$STAGING_VERSION`""
+          # 使用更精確的正則表達式，只匹配 [package] 區塊下的 version
+          $cargoContent = $cargoContent -replace '(?m)^version = "[^"]*"', "version = `"$STAGING_VERSION`""
           Set-Content "src-tauri\Cargo.toml" -Value $cargoContent -NoNewline
           Write-Host "Updated Cargo.toml version to: $STAGING_VERSION"
 
       - name: Build Windows App
-        run: pnpm build:windows
+        shell: bash
+        run: |
+          if [[ "${{ env.D_IS_STAGING_BUILD_ENV }}" == "True" ]]; then
+            # Staging build: 跳過 sync-version 以保留我們的 staging 版本號
+            tauri build --target x86_64-pc-windows-msvc
+          else
+            # Release build: 正常執行包含 sync-version 的命令
+            pnpm build:windows
+          fi
         env:
           VITE_ENV: ${{ env.D_IS_STAGING_BUILD_ENV == 'True' && 'staging' || 'production' }}
           # 新增：Tauri 更新簽名
