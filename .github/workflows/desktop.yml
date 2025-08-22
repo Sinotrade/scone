@@ -153,10 +153,24 @@ jobs:
       - name: Update Cargo.toml version for staging
         if: ${{ env.D_IS_STAGING_BUILD_ENV == 'true' }}
         run: |
-          # 從環境變數取得 display version
+          # 從環境變數取得 display version (格式: staging-0.5.9-commit_sha)
           DISPLAY_VERSION="${{ env.D_DISPLAY_VERSION }}"
-          BASE_VERSION=$(echo "$DISPLAY_VERSION" | sed 's/^staging-//' | cut -d'-' -f1)
-          COMMIT_HASH=$(echo "$DISPLAY_VERSION" | sed 's/^staging-[0-9.]*//' | sed 's/^-//')
+          echo "DEBUG: Original DISPLAY_VERSION: $DISPLAY_VERSION"
+          
+          # 提取基礎版本號和 commit hash
+          if [[ "$DISPLAY_VERSION" == staging-* ]]; then
+            # 移除 staging- 前綴
+            VERSION_WITHOUT_PREFIX="${DISPLAY_VERSION#staging-}"
+            # 提取版本號 (0.5.9)
+            BASE_VERSION=$(echo "$VERSION_WITHOUT_PREFIX" | cut -d'-' -f1)
+            # 提取 commit hash (如果有的話)
+            COMMIT_HASH=$(echo "$VERSION_WITHOUT_PREFIX" | cut -s -d'-' -f2-)
+          else
+            echo "ERROR: Unexpected DISPLAY_VERSION format: $DISPLAY_VERSION"
+            exit 1
+          fi
+          
+          echo "DEBUG: BASE_VERSION: $BASE_VERSION, COMMIT_HASH: $COMMIT_HASH"
           
           # 生成帶時間戳的 semver 版本號
           TIMESTAMP=$(date -u +%Y%m%d%H%M%S)
@@ -368,10 +382,28 @@ jobs:
         if: ${{ env.D_IS_STAGING_BUILD_ENV == 'True' }}
         shell: pwsh
         run: |
-          # 從環境變數取得 display version
+          # 從環境變數取得 display version (格式: staging-0.5.9-commit_sha)
           $DISPLAY_VERSION = "${{ env.D_DISPLAY_VERSION }}"
-          $BASE_VERSION = ($DISPLAY_VERSION -replace '^staging-', '') -split '-' | Select-Object -First 1
-          $COMMIT_PART = $DISPLAY_VERSION -replace "^staging-$BASE_VERSION-?", ''
+          Write-Host "DEBUG: Original DISPLAY_VERSION: $DISPLAY_VERSION"
+          
+          # 提取基礎版本號和 commit hash
+          if ($DISPLAY_VERSION -like "staging-*") {
+            # 移除 staging- 前綴
+            $VERSION_WITHOUT_PREFIX = $DISPLAY_VERSION.Substring("staging-".Length)
+            # 分割版本號和 commit hash
+            $parts = $VERSION_WITHOUT_PREFIX -split '-', 2
+            $BASE_VERSION = $parts[0]
+            if ($parts.Length -gt 1) {
+              $COMMIT_PART = $parts[1]
+            } else {
+              $COMMIT_PART = ""
+            }
+          } else {
+            Write-Error "ERROR: Unexpected DISPLAY_VERSION format: $DISPLAY_VERSION"
+            exit 1
+          }
+          
+          Write-Host "DEBUG: BASE_VERSION: $BASE_VERSION, COMMIT_PART: $COMMIT_PART"
           
           # 生成帶時間戳的 semver 版本號
           $TIMESTAMP = Get-Date -Format "yyyyMMddHHmmss" -AsUTC
