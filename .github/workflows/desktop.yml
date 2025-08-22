@@ -150,6 +150,27 @@ jobs:
           rustup target add x86_64-apple-darwin
           rustup target add aarch64-apple-darwin
 
+      - name: Update Cargo.toml version for staging
+        if: ${{ env.D_IS_STAGING_BUILD_ENV == 'true' }}
+        run: |
+          # 從環境變數取得 display version
+          DISPLAY_VERSION="${{ env.D_DISPLAY_VERSION }}"
+          BASE_VERSION=$(echo "$DISPLAY_VERSION" | sed 's/^staging-//' | cut -d'-' -f1)
+          COMMIT_HASH=$(echo "$DISPLAY_VERSION" | sed 's/^staging-[0-9.]*//' | sed 's/^-//')
+          
+          # 生成帶時間戳的 semver 版本號
+          TIMESTAMP=$(date -u +%Y%m%d%H%M%S)
+          if [ -n "$COMMIT_HASH" ]; then
+            SHORT_SHA=$(echo "$COMMIT_HASH" | cut -c1-7)
+            STAGING_VERSION="${BASE_VERSION}-staging.${TIMESTAMP}.${SHORT_SHA}"
+          else
+            STAGING_VERSION="${BASE_VERSION}-staging.${TIMESTAMP}"
+          fi
+          
+          # 更新 Cargo.toml 版本號
+          sed -i '' "s/^version = .*/version = \"$STAGING_VERSION\"/" src-tauri/Cargo.toml
+          echo "Updated Cargo.toml version to: $STAGING_VERSION"
+
       - name: Build macOS Universal App
         run: pnpm build:mac
         env:
@@ -335,6 +356,30 @@ jobs:
         with:
           toolchain: stable
           target: x86_64-pc-windows-msvc
+
+      - name: Update Cargo.toml version for staging
+        if: ${{ env.D_IS_STAGING_BUILD_ENV == 'True' }}
+        shell: pwsh
+        run: |
+          # 從環境變數取得 display version
+          $DISPLAY_VERSION = "${{ env.D_DISPLAY_VERSION }}"
+          $BASE_VERSION = ($DISPLAY_VERSION -replace '^staging-', '') -split '-' | Select-Object -First 1
+          $COMMIT_PART = $DISPLAY_VERSION -replace "^staging-$BASE_VERSION-?", ''
+          
+          # 生成帶時間戳的 semver 版本號
+          $TIMESTAMP = Get-Date -Format "yyyyMMddHHmmss" -AsUTC
+          if ($COMMIT_PART) {
+            $SHORT_SHA = $COMMIT_PART.Substring(0, [Math]::Min(7, $COMMIT_PART.Length))
+            $STAGING_VERSION = "$BASE_VERSION-staging.$TIMESTAMP.$SHORT_SHA"
+          } else {
+            $STAGING_VERSION = "$BASE_VERSION-staging.$TIMESTAMP"
+          }
+          
+          # 更新 Cargo.toml 版本號
+          $cargoContent = Get-Content "src-tauri\Cargo.toml" -Raw
+          $cargoContent = $cargoContent -replace 'version = "[^"]*"', "version = `"$STAGING_VERSION`""
+          Set-Content "src-tauri\Cargo.toml" -Value $cargoContent -NoNewline
+          Write-Host "Updated Cargo.toml version to: $STAGING_VERSION"
 
       - name: Build Windows App
         run: pnpm build:windows
