@@ -611,11 +611,14 @@ jobs:
             # Extract commit hash (everything after the first dash following base version)
             COMMIT_HASH=$(echo "$DISPLAY_VERSION" | sed 's/^staging-[0-9.]*//' | sed 's/^-//')
             
-            # Create semver compatible version
+            # Create semver compatible version with timestamp for proper version ordering
+            # Format: 0.5.9-staging.YYYYMMDDHHMMSS.sha (ensures newer builds always have higher version)
+            TIMESTAMP=$(date -u +%Y%m%d%H%M%S)
             if [ -n "$COMMIT_HASH" ]; then
-              SEMVER_VERSION="${BASE_VERSION}-staging.${COMMIT_HASH}"
+              SHORT_SHA=$(echo "$COMMIT_HASH" | cut -c1-7)
+              SEMVER_VERSION="${BASE_VERSION}-staging.${TIMESTAMP}.${SHORT_SHA}"
             else
-              SEMVER_VERSION="${BASE_VERSION}-staging"
+              SEMVER_VERSION="${BASE_VERSION}-staging.${TIMESTAMP}"
             fi
           else
             # For release versions, use as-is
@@ -652,26 +655,26 @@ jobs:
           name: update-manifest
           path: update-manifest.json
 
-      - name: Clean up old DMG/MSI assets from Staging Release
+      - name: Clean up old assets from Staging Release
         if: steps.release_info.outputs.prerelease_output == 'true' # Only run for staging/prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.release_info.outputs.canonical_tag_output }}
         run: |
-          echo "Attempting to clean up .dmg and .msi assets for release tag: $RELEASE_TAG on repo $GITHUB_REPOSITORY"
+          echo "Attempting to clean up all old assets for release tag: $RELEASE_TAG on repo $GITHUB_REPOSITORY"
 
           if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json id --jq .id > /dev/null 2>&1 ; then
             echo "Release $RELEASE_TAG does not exist yet on $GITHUB_REPOSITORY. No assets to clean up."
             exit 0 # Successfully exit, as there's nothing to clean
           fi
 
-          echo "Fetching existing .dmg and .msi assets for release $RELEASE_TAG from $GITHUB_REPOSITORY..."
+          echo "Fetching existing assets (.dmg, .msi, .tar.gz, .sig) for release $RELEASE_TAG from $GITHUB_REPOSITORY..."
 
           ASSET_LIST_FILE=$(mktemp)
-          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | select(.name | test("(?i)\\.(dmg|msi)$")) | .name' > "$ASSET_LIST_FILE"
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | select(.name | test("(?i)\\.(dmg|msi|tar\\.gz|sig)$")) | .name' > "$ASSET_LIST_FILE"
 
           if [ ! -s "$ASSET_LIST_FILE" ]; then # Check if file is empty (no assets found)
-            echo "No .dmg or .msi assets found to delete for release $RELEASE_TAG on $GITHUB_REPOSITORY."
+            echo "No assets found to delete for release $RELEASE_TAG on $GITHUB_REPOSITORY."
           else
             echo "Found assets to delete on $GITHUB_REPOSITORY:"
             cat "$ASSET_LIST_FILE"
@@ -687,7 +690,7 @@ jobs:
                 fi
               fi
             done < "$ASSET_LIST_FILE"
-            echo "Finished cleaning up old .dmg and .msi assets."
+            echo "Finished cleaning up old assets."
           fi
           rm "$ASSET_LIST_FILE"
 
