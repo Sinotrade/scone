@@ -173,7 +173,7 @@ jobs:
           echo "DEBUG: BASE_VERSION: $BASE_VERSION, COMMIT_HASH: $COMMIT_HASH"
           
           # 生成簡化的 semver 版本號，符合 MSI 限制
-          # 格式: 0.5.9-123 (只用 run_number，確保能被正式版 0.5.9 更新)
+          # 格式: 0.5.9-123 
           RUN_NUMBER=${{ github.run_number }}
           STAGING_VERSION="${BASE_VERSION}-${RUN_NUMBER}"
           
@@ -182,6 +182,14 @@ jobs:
           # 更新 Cargo.toml 版本號
           sed -i '' "s/^version = .*/version = \"$STAGING_VERSION\"/" src-tauri/Cargo.toml
           echo "Updated Cargo.toml version to: $STAGING_VERSION"
+          
+          # 為 staging 設定檔案命名用的版本號
+          FILE_VERSION="staging-${BASE_VERSION}-${{ github.run_number }}"
+          echo "D_FILE_VERSION_ENV=${FILE_VERSION}" >> $GITHUB_ENV
+          # 保存原始 commit SHA 供 Release Notes 使用
+          if [ -n "$COMMIT_HASH" ]; then
+            echo "D_COMMIT_SHA_ENV=${COMMIT_HASH}" >> $GITHUB_ENV
+          fi
 
       - name: Build macOS Universal App
         run: |
@@ -252,9 +260,17 @@ jobs:
           fi
 
           # Define final file names
-          FINAL_DMG_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.dmg"
-          FINAL_UPDATER_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.app.tar.gz"
-          FINAL_UPDATER_SIG_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.app.tar.gz.sig"
+          if [[ -n "${{ env.D_FILE_VERSION_ENV }}" ]]; then
+            # Staging: 使用簡化版本號
+            FINAL_DMG_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_FILE_VERSION_ENV }}_universal.dmg"
+            FINAL_UPDATER_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_FILE_VERSION_ENV }}_universal.app.tar.gz"
+            FINAL_UPDATER_SIG_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_FILE_VERSION_ENV }}_universal.app.tar.gz.sig"
+          else
+            # Release: 保持原邏輯
+            FINAL_DMG_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.dmg"
+            FINAL_UPDATER_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.app.tar.gz"
+            FINAL_UPDATER_SIG_BASENAME="${SANITIZED_APP_NAME}_${{ env.D_DISPLAY_VERSION_ENV }}_universal.app.tar.gz.sig"
+          fi
 
           # Move files to workspace
           echo "Moving $DMG_FILE_FOUND to $FINAL_DMG_BASENAME"
@@ -273,6 +289,7 @@ jobs:
           echo "dmg_name_output=${FINAL_DMG_BASENAME}" >> $GITHUB_OUTPUT
           echo "updater_archive_output=${FINAL_UPDATER_BASENAME}" >> $GITHUB_OUTPUT
           echo "updater_sig_output=${FINAL_UPDATER_SIG_BASENAME}" >> $GITHUB_OUTPUT
+          echo "commit_sha_output=${{ env.D_COMMIT_SHA_ENV }}" >> $GITHUB_OUTPUT
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
@@ -404,7 +421,7 @@ jobs:
           Write-Host "DEBUG: BASE_VERSION: $BASE_VERSION, COMMIT_PART: $COMMIT_PART"
           
           # 生成簡化的 semver 版本號，符合 MSI 限制
-          # 格式: 0.5.9-123 (只用 run_number，確保能被正式版 0.5.9 更新)
+          # 格式: 0.5.9-123
           $RUN_NUMBER = "${{ github.run_number }}"
           $STAGING_VERSION = "$BASE_VERSION-$RUN_NUMBER"
           
@@ -416,6 +433,14 @@ jobs:
           $cargoContent = $cargoContent -replace '(?m)^version = "[^"]*"', "version = `"$STAGING_VERSION`""
           Set-Content "src-tauri\Cargo.toml" -Value $cargoContent -NoNewline
           Write-Host "Updated Cargo.toml version to: $STAGING_VERSION"
+          
+          # 為 staging 設定檔案命名用的版本號
+          $FILE_VERSION = "staging-$BASE_VERSION-${{ github.run_number }}"
+          "D_FILE_VERSION_ENV=$FILE_VERSION" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # 保存原始 commit SHA 供 Release Notes 使用
+          if ($COMMIT_PART) {
+            "D_COMMIT_SHA_ENV=$COMMIT_PART" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
 
       - name: Build Windows App
         shell: bash
@@ -454,7 +479,13 @@ jobs:
           $msiPath = Get-ChildItem -Path $msiSearchPattern | Select-Object -First 1 -ExpandProperty FullName
           if (-not $msiPath) { Write-Error "MSI file not found with pattern: $msiSearchPattern."; exit 1 }
 
-          $msiName = "${sanitizedAppName}_${{ env.D_DISPLAY_VERSION_ENV }}_x64.msi"
+          if ($null -ne $env:D_FILE_VERSION_ENV -and $env:D_FILE_VERSION_ENV -ne "") {
+            # Staging: 使用簡化版本號
+            $msiName = "${sanitizedAppName}_${{ env.D_FILE_VERSION_ENV }}_x64.msi"
+          } else {
+            # Release: 保持原邏輯
+            $msiName = "${sanitizedAppName}_${{ env.D_DISPLAY_VERSION_ENV }}_x64.msi"
+          }
           $originalSigPath = "$msiPath.sig"
           $targetSigName = "$msiName.sig"
 
@@ -481,6 +512,7 @@ jobs:
           Get-ChildItem . | Select-Object Name, Length
 
           "msi_name=$msiName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "commit_sha_output=${{ env.D_COMMIT_SHA_ENV }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
@@ -604,6 +636,41 @@ jobs:
           cat ../RELEASE_NOTES_DESKTOP.md
           echo "-----------------------------------------------------------------------------------"
         shell: bash
+
+      - name: Prepare Build Info for Release Notes
+        if: env.CR_IS_STAGING == 'true'
+        run: |
+          # 從 build outputs 或 display version 獲取 commit SHA
+          COMMIT_SHA="${{ needs.Build-macos.outputs.commit_sha_output }}"
+          if [[ -z "$COMMIT_SHA" ]] || [[ "$COMMIT_SHA" == "null" ]]; then
+            # 從 Windows build 嘗試
+            COMMIT_SHA="${{ needs.Build-windows.outputs.commit_sha_output }}"
+          fi
+          if [[ -z "$COMMIT_SHA" ]] || [[ "$COMMIT_SHA" == "null" ]]; then
+            # 從 CR_DISPLAY_VERSION 提取 (fallback)
+            COMMIT_SHA=$(echo "${{ env.CR_DISPLAY_VERSION }}" | sed 's/^staging-[0-9.]*-//')
+          fi
+          
+          # 準備構建資訊
+          BUILD_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          BASE_VERSION=$(echo "${{ env.CR_DISPLAY_VERSION }}" | sed 's/^staging-//' | cut -d'-' -f1)
+          BUILD_VERSION="staging-${BASE_VERSION}-${{ github.run_number }}"
+          
+          # 追加到 Release Notes
+          {
+            cat RELEASE_NOTES_DESKTOP.md
+            echo ""
+            echo "---"
+            echo "### 📦 Build Information"
+            echo "- **Version**: ${BUILD_VERSION}"
+            echo "- **Commit**: \`${COMMIT_SHA}\`"
+            echo "- **Build Time**: ${BUILD_TIME}"
+            echo "- **Build Number**: #${{ github.run_number }}"
+          } > RELEASE_NOTES_TEMP.md
+          mv RELEASE_NOTES_TEMP.md RELEASE_NOTES_DESKTOP.md
+          
+          echo "Updated Release Notes with build information"
+          cat RELEASE_NOTES_DESKTOP.md
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
