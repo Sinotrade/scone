@@ -650,27 +650,53 @@ jobs:
             # 從 CR_DISPLAY_VERSION 提取 (fallback)
             COMMIT_SHA=$(echo "${{ env.CR_DISPLAY_VERSION }}" | sed 's/^staging-[0-9.]*-//')
           fi
-          
+
           # 準備構建資訊
           BUILD_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
           BASE_VERSION=$(echo "${{ env.CR_DISPLAY_VERSION }}" | sed 's/^staging-//' | cut -d'-' -f1)
           BUILD_VERSION="staging-${BASE_VERSION}-${{ github.run_number }}"
-          
-          # 追加到 Release Notes
+
+          # 獲取現有 release 的 body（如果存在）
+          EXISTING_BUILD_INFO=""
+          RELEASE_TAG="${{ steps.release_info.outputs.canonical_tag_output }}"
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
+            echo "Found existing release, extracting build history..."
+            # 獲取現有的 release body
+            EXISTING_BODY=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json body -q .body)
+
+            # 提取現有的 Build Information 部分（如果存在）
+            if echo "$EXISTING_BODY" | grep -q "### 📦 Build Information"; then
+              # 提取從 "### 📦 Build Information" 開始到結尾的所有內容
+              EXISTING_BUILD_INFO=$(echo "$EXISTING_BODY" | sed -n '/### 📦 Build Information/,$p' | tail -n +2)
+            fi
+          fi
+
+          # 組合新的 Release Notes
           {
+            # 1. 原始的 changelog（由 git-cliff 生成）
             cat RELEASE_NOTES_DESKTOP.md
             echo ""
             echo "---"
             echo "### 📦 Build Information"
-            echo "- **Version**: ${BUILD_VERSION}"
+            echo ""
+            # 2. 新增當前版本資訊（放在最上方）
+            echo "#### Version: ${BUILD_VERSION}"
             echo "- **Commit**: \`${COMMIT_SHA}\`"
             echo "- **Build Time**: ${BUILD_TIME}"
             echo "- **Build Number**: #${{ github.run_number }}"
+            echo ""
+            # 3. 追加歷史版本資訊（如果存在）
+            if [ -n "$EXISTING_BUILD_INFO" ]; then
+              echo "$EXISTING_BUILD_INFO"
+            fi
           } > RELEASE_NOTES_TEMP.md
           mv RELEASE_NOTES_TEMP.md RELEASE_NOTES_DESKTOP.md
-          
-          echo "Updated Release Notes with build information"
+
+          echo "Updated Release Notes with accumulated build information"
+          echo "=== Final Release Notes ==="
           cat RELEASE_NOTES_DESKTOP.md
+          echo "=========================="
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
