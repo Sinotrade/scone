@@ -156,7 +156,7 @@ jobs:
           # 從環境變數取得 display version (格式: staging-0.5.9-commit_sha)
           DISPLAY_VERSION="${{ env.D_DISPLAY_VERSION_ENV }}"
           echo "DEBUG: Original DISPLAY_VERSION: $DISPLAY_VERSION"
-          
+
           # 提取基礎版本號和 commit hash
           if [[ "$DISPLAY_VERSION" == staging-* ]]; then
             # 移除 staging- 前綴
@@ -169,20 +169,20 @@ jobs:
             echo "ERROR: Unexpected DISPLAY_VERSION format: $DISPLAY_VERSION"
             exit 1
           fi
-          
+
           echo "DEBUG: BASE_VERSION: $BASE_VERSION, COMMIT_HASH: $COMMIT_HASH"
-          
+
           # 生成簡化的 semver 版本號，符合 MSI 限制
-          # 格式: 0.5.9-123 
+          # 格式: 0.5.9-123
           RUN_NUMBER=${{ github.run_number }}
           STAGING_VERSION="${BASE_VERSION}-${RUN_NUMBER}"
-          
+
           echo "DEBUG: Generated staging version: $STAGING_VERSION"
-          
+
           # 更新 Cargo.toml 版本號
           sed -i '' "s/^version = .*/version = \"$STAGING_VERSION\"/" src-tauri/Cargo.toml
           echo "Updated Cargo.toml version to: $STAGING_VERSION"
-          
+
           # 為 staging 設定檔案命名用的版本號
           FILE_VERSION="staging-${BASE_VERSION}-${{ github.run_number }}"
           echo "D_FILE_VERSION_ENV=${FILE_VERSION}" >> $GITHUB_ENV
