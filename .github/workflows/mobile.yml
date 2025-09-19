@@ -90,8 +90,8 @@ jobs:
       - name: Set Xcode version
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16.4'
-          # xcode-version: 'latest-stable'
+          # xcode-version: '16.4'
+          xcode-version: 'latest-stable'
 
       - name: Bundle install in ios/App
         run: bundle install
